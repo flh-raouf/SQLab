@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design System"
+  short_description: "Apply one shared UI system across the whole frontend"
+  default_prompt: "Use $design-system to create or refactor frontend UI so the whole product follows one shared design system with consistent tokens, surfaces, typography, and semantic color usage."

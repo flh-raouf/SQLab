@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(python -m ruff check src/modules/auth/services/auth_application_service.py)",
+      "Bash(pipx run *)",
+      "Bash(python3 -m pytest tests/ -k \"auth\" -x --no-header)",
+      "Bash(python3 *)",
+      "Bash(bun run *)",
+      "Bash(bun which *)"
+    ]
+  }
+}
