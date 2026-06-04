@@ -5,25 +5,21 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run"
   },
   "dependencies": {
     "@bdd-revision/api": "workspace:*",
-    "@codemirror/commands": "latest",
     "@codemirror/lang-sql": "latest",
     "@codemirror/state": "latest",
     "@codemirror/view": "latest",
-    "@uiw/react-codemirror": "latest",
-    "@radix-ui/react-dialog": "latest",
-    "@radix-ui/react-scroll-area": "latest",
-    "@radix-ui/react-separator": "latest",
     "@radix-ui/react-slot": "latest",
     "@tanstack/react-query": "latest",
     "@tanstack/react-router": "latest",
     "@trpc/client": "latest",
     "@trpc/react-query": "latest",
+    "@uiw/react-codemirror": "latest",
     "@vitejs/plugin-react": "latest",
-    "class-variance-authority": "latest",
     "clsx": "latest",
     "lucide-react": "latest",
     "react": "latest",
@@ -34,9 +30,13 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
     "@types/bun": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "latest"
+    "jsdom": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
   }
 }

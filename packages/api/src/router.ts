@@ -104,7 +104,7 @@ const identifierSchema = z.string().regex(/^[A-Za-z0-9_]+$/);
 const quoteIdentifier = (identifier: string) =>
   `\`${identifier.replaceAll("`", "``")}\``;
 
-function stripLeadingComments(sql: string) {
+export function stripLeadingComments(sql: string) {
   let rest = sql.trimStart();
 
   while (
@@ -131,7 +131,7 @@ function stripLeadingComments(sql: string) {
   return rest;
 }
 
-function getSqlTokens(sql: string) {
+export function getSqlTokens(sql: string) {
   return stripLeadingComments(sql)
     .replace(/;\s*$/, "")
     .split(/\s+/)
@@ -139,7 +139,10 @@ function getSqlTokens(sql: string) {
     .map((token) => token.replace(/[^A-Za-z_]/g, "").toUpperCase());
 }
 
-function classifySql(sql: string, options: SqlExecutionOptions = {}): SqlKind {
+export function classifySql(
+  sql: string,
+  options: SqlExecutionOptions = {},
+): SqlKind {
   const allowAlter = options.allowAlter ?? false;
   const allowCreateTable = options.allowCreateTable ?? false;
   const allowDatabaseSetup = options.allowDatabaseSetup ?? false;
@@ -298,7 +301,7 @@ async function runQueryForUser(sql: string, allowAlter = false) {
   }
 }
 
-function splitSqlStatements(sql: string) {
+export function splitSqlStatements(sql: string) {
   const statements: string[] = [];
   let current = "";
   let quote: "'" | '"' | "`" | null = null;
@@ -411,7 +414,7 @@ function isNumericLike(value: unknown) {
   return value.trim() !== "" && Number.isFinite(Number(value));
 }
 
-function normalizeValue(value: unknown) {
+export function normalizeValue(value: unknown) {
   if (value instanceof Date) {
     return value.toISOString();
   }
@@ -427,7 +430,7 @@ function normalizeValue(value: unknown) {
   return String(value);
 }
 
-function normalizeRow(row: QueryRow, columns: string[]) {
+export function normalizeRow(row: QueryRow, columns: string[]) {
   return JSON.stringify(
     Object.fromEntries(
       columns.map((column) => [column, normalizeValue(row[column])]),
@@ -435,7 +438,7 @@ function normalizeRow(row: QueryRow, columns: string[]) {
   );
 }
 
-function compareResults(
+export function compareResults(
   actual: QueryResult,
   expected: QueryResult,
 ): ResultDiff | null {

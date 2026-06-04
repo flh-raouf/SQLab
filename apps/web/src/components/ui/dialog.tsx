@@ -47,9 +47,14 @@ function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 
 function DialogTitle({
   className,
+  children,
   ...props
 }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn("text-lg font-semibold", className)} {...props} />;
+  return (
+    <h2 className={cn("text-lg font-semibold", className)} {...props}>
+      {children}
+    </h2>
+  );
 }
 
 function DialogDescription({
@@ -66,6 +71,7 @@ const DialogClose = forwardRef<
   ComponentPropsWithoutRef<"button">
 >(({ className, ...props }, ref) => (
   <button
+    type="button"
     ref={ref}
     className={cn(
       "absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100",

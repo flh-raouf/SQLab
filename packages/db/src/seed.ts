@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 
-const sqlFilePath = join(import.meta.dir, "../../../TelecomDZ_schema_data.sql");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const sqlFilePath = join(__dirname, "../../../TelecomDZ_schema_data.sql");
 
 const connectionConfig = {
   host: process.env.DB_HOST ?? "localhost",

@@ -3,7 +3,12 @@ import { Sidebar } from "@/components/sidebar";
 import { useProgress } from "@/hooks/use-progress";
 
 export function AppShell() {
-  const { completed, reset: resetProgress } = useProgress();
+  const {
+    completed,
+    hintedExerciseIds,
+    revealedExerciseIds,
+    reset: resetProgress,
+  } = useProgress();
 
   const currentPath = useRouterState({ select: (s) => s.location.pathname });
   const exerciseMatch = currentPath.match(/\/exercise\/(.+)/);
@@ -13,6 +18,8 @@ export function AppShell() {
     <div className="flex h-screen w-full overflow-hidden">
       <Sidebar
         completed={completed}
+        hintedExerciseIds={hintedExerciseIds}
+        revealedExerciseIds={revealedExerciseIds}
         activeExerciseId={activeExerciseId}
         onReset={resetProgress}
       />

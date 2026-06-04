@@ -8,8 +8,8 @@ export const exerciseRoute = createRoute({
   component: ExercisePage,
 });
 
-function ExercisePage() {
+export function ExercisePage() {
   const { exerciseId } = exerciseRoute.useParams();
 
-  return <ExerciseWorkspace exerciseId={exerciseId} />;
+  return <ExerciseWorkspace key={exerciseId} exerciseId={exerciseId} />;
 }

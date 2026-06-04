@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, FlaskConical, RotateCcw } from "lucide-react";
+import { CheckCircle2, Database, FlaskConical, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,16 @@ import { cn } from "@/lib/utils";
 
 type SidebarProps = {
   completed: string[];
+  hintedExerciseIds: string[];
+  revealedExerciseIds: string[];
   activeExerciseId?: string;
   onReset: () => void;
 };
 
 export function Sidebar({
   completed,
+  hintedExerciseIds,
+  revealedExerciseIds,
   activeExerciseId,
   onReset,
 }: SidebarProps) {
@@ -35,15 +39,16 @@ export function Sidebar({
       <div className="flex items-center justify-between px-4 py-3">
         <Link
           to="/"
-          className="flex items-center gap-2 font-semibold text-foreground no-underline"
+          className="flex items-center gap-2 font-mono font-semibold text-foreground no-underline"
         >
+          <Database className="h-5 w-5 text-accent" />
           BDD Revision
         </Link>
       </div>
 
       <Separator />
 
-      <ScrollArea className="flex-1 px-2 py-2">
+      <ScrollArea className="flex-1 px-2 py-2" data-tour="sidebar">
         {isLoading && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
             Loading exercises...
@@ -59,6 +64,15 @@ export function Sidebar({
               {group.exercises.map((exercise) => {
                 const isActive = exercise.id === activeExerciseId;
                 const isCompleted = completed.includes(exercise.id);
+                const isRevealed = revealedExerciseIds.includes(exercise.id);
+                const isHinted = hintedExerciseIds.includes(exercise.id);
+                const checkColor = isRevealed
+                  ? "text-destructive"
+                  : isHinted
+                    ? "text-yellow-400"
+                    : isCompleted
+                      ? "text-success"
+                      : "text-muted-foreground";
 
                 return (
                   <Link
@@ -73,10 +87,7 @@ export function Sidebar({
                     )}
                   >
                     <CheckCircle2
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        isCompleted ? "text-success" : "text-muted-foreground",
-                      )}
+                      className={cn("h-4 w-4 shrink-0", checkColor)}
                     />
                     <span className="truncate">{exercise.title}</span>
                   </Link>
@@ -95,10 +106,42 @@ export function Sidebar({
 
       <Separator />
 
+      <div className="px-3 py-2">
+        <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Progress</span>
+          <span>
+            {completed.length} /{" "}
+            {groups?.reduce((sum, g) => sum + g.exercises.length, 0) ?? 0}
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-sidebar-active">
+          <div
+            className="h-full rounded-full bg-accent transition-all duration-300"
+            style={{
+              width: `${
+                groups
+                  ? (
+                      completed.length /
+                        Math.max(
+                          groups.reduce(
+                            (sum, g) => sum + g.exercises.length,
+                            0,
+                          ),
+                          1,
+                        )
+                    ) * 100
+                  : 0
+              }%`,
+            }}
+          />
+        </div>
+      </div>
+
       <div className="px-2 py-2 space-y-1">
         <Link
           to="/sandbox"
           className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground no-underline transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          data-tour="sandbox"
         >
           <FlaskConical className="h-4 w-4" />
           Sandbox

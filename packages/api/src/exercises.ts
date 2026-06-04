@@ -413,14 +413,10 @@ WHERE c.customerId = s.customerId
     type: "dql",
     hints: [
       "The values are stored in PLAN.",
-      "Sort monthlyRate from highest to lowest.",
-      "Use LIMIT 1 or compare with MAX(monthlyRate).",
+      "Use a subquery to find the maximum monthlyRate.",
+      "Compare each plan's monthlyRate against the maximum.",
     ],
     solutionQueries: [
-      `SELECT planName, monthlyRate
-FROM PLAN
-ORDER BY monthlyRate DESC
-LIMIT 1`,
       `SELECT planName, monthlyRate
 FROM PLAN
 WHERE monthlyRate = (SELECT MAX(monthlyRate) FROM PLAN)`,
@@ -644,16 +640,10 @@ HAVING COUNT(DISTINCT u.serviceId) = (SELECT COUNT(*) FROM SERVICE)`,
     type: "dql",
     hints: [
       "Revenue is stored as amount on `USAGE`.",
-      "Group usage rows by service.",
-      "Sort SUM(amount) descending and take the first row.",
+      "Group usage rows by service and compute the total.",
+      "Use HAVING with a subquery to compare each service's total against all others.",
     ],
     solutionQueries: [
-      `SELECT srv.serviceId, srv.serviceName, SUM(u.amount) AS totalRevenue
-FROM SERVICE srv
-JOIN \`USAGE\` u ON u.serviceId = srv.serviceId
-GROUP BY srv.serviceId, srv.serviceName
-ORDER BY totalRevenue DESC
-LIMIT 1`,
       `SELECT srv.serviceId, srv.serviceName, SUM(u.amount) AS totalRevenue
 FROM SERVICE srv
 JOIN \`USAGE\` u ON u.serviceId = srv.serviceId
@@ -678,7 +668,7 @@ HAVING SUM(u.amount) >= ALL (
     hints: [
       "Sum callDuration per subscriber.",
       "Join CUSTOMER for customerName.",
-      "Sort totalCallDuration descending and use LIMIT 1.",
+      "Compare each subscriber's total against the maximum total using a subquery.",
     ],
     solutionQueries: [
       `SELECT c.customerName, s.phoneNumber, SUM(u.callDuration) AS totalCallDuration
@@ -686,8 +676,11 @@ FROM CUSTOMER c
 JOIN SUBSCRIBER s ON s.customerId = c.customerId
 JOIN \`USAGE\` u ON u.phoneNumber = s.phoneNumber
 GROUP BY c.customerName, s.phoneNumber
-ORDER BY totalCallDuration DESC
-LIMIT 1`,
+HAVING SUM(u.callDuration) >= ALL (
+  SELECT SUM(u2.callDuration)
+  FROM \`USAGE\` u2
+  GROUP BY u2.phoneNumber
+)`,
     ],
     initialCode:
       "SELECT c.customerName, s.phoneNumber, SUM(u.callDuration) AS totalCallDuration\nFROM ",

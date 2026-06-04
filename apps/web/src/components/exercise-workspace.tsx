@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
+import type { ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ExercisePanel } from "@/components/exercise-panel";
 import { ResultsTable } from "@/components/results-table";
 import { SqlEditor } from "@/components/sql-editor";
@@ -19,9 +20,11 @@ type QueryResultData = {
 
 export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
   const { data: exercise, isLoading } = trpc.exercises.get.useQuery(exerciseId);
-  const { completed, markComplete } = useProgress();
+  const { completed, markComplete, markHintUsed, markSolutionRevealed } =
+    useProgress();
 
   const [sql, setSql] = useState("");
+  const editorRef = useRef<ReactCodeMirrorRef>(null);
   const [runResult, setRunResult] = useState<QueryResultData | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<{
@@ -80,17 +83,24 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <ExercisePanel
-        title={exercise.title}
-        description={exercise.description}
-        hints={exercise.hints}
-        solutionQueries={exercise.solutionQueries}
-      />
+      <div className="flex-1 overflow-auto px-4 pt-0 pb-4 space-y-4">
+        <ExercisePanel
+          title={exercise.title}
+          description={exercise.description}
+          hints={exercise.hints}
+          solutionQueries={exercise.solutionQueries}
+          onHintRevealed={() => markHintUsed(exerciseId)}
+          onSolutionRevealed={() => markSolutionRevealed(exerciseId)}
+          onSchemaModalClose={() => {
+            setTimeout(() => editorRef.current?.view?.focus(), 0);
+          }}
+        />
 
-      <Separator />
+        <Separator />
 
-      <div className="flex-1 overflow-auto p-4 space-y-4">
         <SqlEditor
+          ref={editorRef}
+          data-tour="editor"
           value={sql}
           onChange={setSql}
           onSubmit={handleSubmit}
@@ -99,29 +109,31 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
           isRunning={runMutation.isPending}
         />
 
-        {runError && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 font-mono text-sm text-red-400 whitespace-pre-wrap">
-            {runError}
-          </div>
-        )}
+        <div data-tour="results">
+          {runError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 font-mono text-sm text-red-400 whitespace-pre-wrap">
+              {runError}
+            </div>
+          )}
 
-        {runResult && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Run output
-            </p>
-            <ResultsTable {...runResult} />
-          </div>
-        )}
+          {runResult && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Run output
+              </p>
+              <ResultsTable {...runResult} />
+            </div>
+          )}
 
-        {validationResult && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Submission result
-            </p>
-            <ValidationFeedback {...validationResult} />
-          </div>
-        )}
+          {validationResult && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Submission result
+              </p>
+              <ValidationFeedback {...validationResult} />
+            </div>
+          )}
+        </div>
       </div>
 
       <Separator />

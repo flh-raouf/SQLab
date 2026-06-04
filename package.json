@@ -8,16 +8,22 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --parallel",
+    "dev": "turbo run dev --ui=tui --filter=@bdd-revision/web --filter=@bdd-revision/api",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "db:seed": "bun run --cwd packages/db seed"
+    "db:seed": "bun run --cwd packages/db seed",
+    "test": "turbo run test"
   },
   "devDependencies": {
     "@biomejs/biome": "latest",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
     "turbo": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^4.1.8"
   }
 }

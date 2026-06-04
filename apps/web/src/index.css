@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @theme {
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --color-background: #0f1117;
   --color-foreground: #e1e4e8;
   --color-muted: #8b949e;
@@ -32,4 +33,12 @@ body {
 #root {
   height: 100vh;
   display: flex;
+}
+
+.cm-editor {
+  cursor: text;
+}
+
+.cm-editor .cm-cursor {
+  border-left-color: #e1e4e8;
 }

@@ -8,7 +8,8 @@
   "scripts": {
     "seed": "bun src/seed.ts",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --pretty false"
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run"
   },
   "dependencies": {
     "drizzle-orm": "latest",
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "drizzle-kit": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "latest"
   }
 }
