@@ -11,26 +11,45 @@ const connectionConfig = {
   password: process.env.DB_PASSWORD ?? "root",
 };
 
-const stripComments = (sql: string) =>
+export const stripComments = (sql: string) =>
   sql
     .split("\n")
     .filter((line) => !line.trimStart().startsWith("--"))
     .join("\n");
 
-const splitStatements = (sql: string) =>
+export const splitStatements = (sql: string) =>
   stripComments(sql)
     .split(";")
     .map((statement) => statement.trim())
     .filter(Boolean);
 
-async function seedDatabase() {
+export async function getSeedStatements(options?: {
+  includeDatabaseSetup?: boolean;
+}) {
+  const includeDatabaseSetup = options?.includeDatabaseSetup ?? true;
+  const sql = await readFile(sqlFilePath, "utf8");
+  const statements = splitStatements(sql);
+
+  if (includeDatabaseSetup) {
+    return statements;
+  }
+
+  return statements.filter((statement) => {
+    const normalized = statement.trim().toUpperCase();
+    return (
+      !normalized.startsWith("CREATE DATABASE") &&
+      !normalized.startsWith("USE ")
+    );
+  });
+}
+
+export async function seedDatabase() {
   const connection = await mysql.createConnection(connectionConfig);
 
   try {
-    const sql = await readFile(sqlFilePath, "utf8");
     const statements = [
       "DROP DATABASE IF EXISTS DZTelecom",
-      ...splitStatements(sql),
+      ...(await getSeedStatements({ includeDatabaseSetup: true })),
     ];
 
     for (const statement of statements) {
@@ -43,4 +62,6 @@ async function seedDatabase() {
   }
 }
 
-await seedDatabase();
+if (import.meta.main) {
+  await seedDatabase();
+}

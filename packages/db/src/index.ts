@@ -20,3 +20,4 @@ export const pool = mysql.createPool({
 export const db = drizzle(pool, { schema, mode: "default" });
 
 export * from "./schema";
+export { getSeedStatements, seedDatabase, splitStatements } from "./seed";

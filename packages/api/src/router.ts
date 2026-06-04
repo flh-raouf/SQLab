@@ -1,4 +1,4 @@
-import { dbConfig, pool } from "@bdd-revision/db";
+import { dbConfig, getSeedStatements, pool } from "@bdd-revision/db";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type {
   FieldPacket,
@@ -7,6 +7,8 @@ import type {
 } from "mysql2/promise";
 import { z } from "zod";
 import {
+  type Exercise,
+  type ExpectedOutput,
   getExercise,
   getExerciseSummaries,
   getExercisesByPart,
@@ -57,6 +59,46 @@ type QueryResult = {
 
 type SqlKind = "read" | "dml" | "schema";
 
+type SqlExecutionOptions = {
+  allowAlter?: boolean;
+  allowCreateTable?: boolean;
+  allowDatabaseSetup?: boolean;
+  rollbackDml?: boolean;
+};
+
+type ColumnDiff = {
+  expected: string[];
+  actual: string[];
+  missing: string[];
+  extra: string[];
+};
+
+type RowCountDiff = {
+  expected: number;
+  actual: number;
+};
+
+type DataDiff = {
+  missingRows: QueryRow[];
+  extraRows: QueryRow[];
+};
+
+type ResultDiff = {
+  columnDiff?: ColumnDiff;
+  rowCountDiff?: RowCountDiff;
+  dataDiff?: DataDiff;
+  sqlError?: string;
+};
+
+type ValidationResponse = {
+  passed: boolean;
+  exerciseId: string;
+  mode: Exercise["type"];
+  matchedSolutionIndex?: number;
+  result?: QueryResult;
+  diff?: ResultDiff;
+};
+
 const identifierSchema = z.string().regex(/^[A-Za-z0-9_]+$/);
 
 const quoteIdentifier = (identifier: string) =>
@@ -97,7 +139,10 @@ function getSqlTokens(sql: string) {
     .map((token) => token.replace(/[^A-Za-z_]/g, "").toUpperCase());
 }
 
-function classifySql(sql: string, allowAlter: boolean): SqlKind {
+function classifySql(sql: string, options: SqlExecutionOptions = {}): SqlKind {
+  const allowAlter = options.allowAlter ?? false;
+  const allowCreateTable = options.allowCreateTable ?? false;
+  const allowDatabaseSetup = options.allowDatabaseSetup ?? false;
   const tokens = getSqlTokens(sql);
   const [keyword, secondKeyword] = tokens;
 
@@ -117,9 +162,25 @@ function classifySql(sql: string, allowAlter: boolean): SqlKind {
 
   if (keyword === "CREATE") {
     if (secondKeyword === "DATABASE") {
+      if (allowDatabaseSetup) {
+        return "schema";
+      }
+
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "CREATE DATABASE statements are blocked for safety.",
+      });
+    }
+
+    if (secondKeyword === "TABLE") {
+      if (allowCreateTable) {
+        return "schema";
+      }
+
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "CREATE TABLE statements are only allowed during DDL validation.",
       });
     }
 
@@ -152,6 +213,17 @@ function classifySql(sql: string, allowAlter: boolean): SqlKind {
     }
 
     return "schema";
+  }
+
+  if (keyword === "USE") {
+    if (allowDatabaseSetup) {
+      return "schema";
+    }
+
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "USE statements are only allowed during DDL validation.",
+    });
   }
 
   if (readOnlyKeywords.has(keyword)) {
@@ -213,7 +285,7 @@ function getErrorMessage(error: unknown) {
 
 async function runQueryForUser(sql: string, allowAlter = false) {
   try {
-    return await runQuery(sql, allowAlter);
+    return await runQuery(sql, { allowAlter });
   } catch (error) {
     if (error instanceof TRPCError) {
       throw error;
@@ -224,6 +296,209 @@ async function runQueryForUser(sql: string, allowAlter = false) {
       message: getErrorMessage(error),
     });
   }
+}
+
+function splitSqlStatements(sql: string) {
+  const statements: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | "`" | null = null;
+  let isLineComment = false;
+  let isBlockComment = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const nextChar = sql[index + 1];
+
+    if (isLineComment) {
+      current += char;
+      if (char === "\n") {
+        isLineComment = false;
+      }
+      continue;
+    }
+
+    if (isBlockComment) {
+      current += char;
+      if (char === "*" && nextChar === "/") {
+        current += nextChar;
+        index += 1;
+        isBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!quote && char === "-" && nextChar === "-") {
+      current += char;
+      current += nextChar;
+      index += 1;
+      isLineComment = true;
+      continue;
+    }
+
+    if (!quote && char === "#") {
+      current += char;
+      isLineComment = true;
+      continue;
+    }
+
+    if (!quote && char === "/" && nextChar === "*") {
+      current += char;
+      current += nextChar;
+      index += 1;
+      isBlockComment = true;
+      continue;
+    }
+
+    if (quote) {
+      current += char;
+      if (char === "\\") {
+        current += nextChar ?? "";
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    if (char === ";") {
+      const statement = current.trim();
+      if (statement) {
+        statements.push(statement);
+      }
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const finalStatement = current.trim();
+  if (finalStatement) {
+    statements.push(finalStatement);
+  }
+
+  return statements;
+}
+
+function toQueryResult(expectedOutput: ExpectedOutput): QueryResult {
+  return {
+    columns: expectedOutput.columns,
+    rows: expectedOutput.rows,
+  };
+}
+
+function isNumericLike(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  if (/^0\d+/.test(value)) {
+    return false;
+  }
+
+  return value.trim() !== "" && Number.isFinite(Number(value));
+}
+
+function normalizeValue(value: unknown) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (isNumericLike(value)) {
+    return Number(value).toString();
+  }
+
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return String(value);
+}
+
+function normalizeRow(row: QueryRow, columns: string[]) {
+  return JSON.stringify(
+    Object.fromEntries(
+      columns.map((column) => [column, normalizeValue(row[column])]),
+    ),
+  );
+}
+
+function compareResults(
+  actual: QueryResult,
+  expected: QueryResult,
+): ResultDiff | null {
+  const expectedColumns = [...expected.columns].sort();
+  const actualColumns = [...actual.columns].sort();
+  const missingColumns = expectedColumns.filter(
+    (column) => !actualColumns.includes(column),
+  );
+  const extraColumns = actualColumns.filter(
+    (column) => !expectedColumns.includes(column),
+  );
+
+  if (missingColumns.length > 0 || extraColumns.length > 0) {
+    return {
+      columnDiff: {
+        expected: expected.columns,
+        actual: actual.columns,
+        missing: missingColumns,
+        extra: extraColumns,
+      },
+    };
+  }
+
+  const diff: ResultDiff = {};
+
+  if (actual.rows.length !== expected.rows.length) {
+    diff.rowCountDiff = {
+      expected: expected.rows.length,
+      actual: actual.rows.length,
+    };
+  }
+
+  const comparisonColumns = expectedColumns;
+  const actualCounts = new Map<string, { row: QueryRow; count: number }>();
+  for (const row of actual.rows) {
+    const key = normalizeRow(row, comparisonColumns);
+    const existing = actualCounts.get(key);
+    actualCounts.set(key, { row, count: (existing?.count ?? 0) + 1 });
+  }
+
+  const missingRows: QueryRow[] = [];
+  for (const row of expected.rows) {
+    const key = normalizeRow(row, comparisonColumns);
+    const existing = actualCounts.get(key);
+    if (!existing || existing.count === 0) {
+      missingRows.push(row);
+      continue;
+    }
+    existing.count -= 1;
+  }
+
+  const extraRows = Array.from(actualCounts.values()).flatMap(
+    ({ row, count }) => Array.from({ length: count }, () => row),
+  );
+
+  if (missingRows.length > 0 || extraRows.length > 0) {
+    diff.dataDiff = {
+      missingRows,
+      extraRows,
+    };
+  }
+
+  return Object.keys(diff).length === 0 ? null : diff;
 }
 
 async function assertTableExists(tableName: string) {
@@ -245,10 +520,14 @@ async function assertTableExists(tableName: string) {
   return parsedTableName;
 }
 
-async function runQuery(sql: string, allowAlter = false): Promise<QueryResult> {
-  const sqlKind = classifySql(sql, allowAlter);
+async function runQuery(
+  sql: string,
+  options: SqlExecutionOptions = {},
+): Promise<QueryResult> {
+  const sqlKind = classifySql(sql, options);
+  const rollbackDml = options.rollbackDml ?? true;
 
-  if (sqlKind === "dml") {
+  if (sqlKind === "dml" && rollbackDml) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
@@ -269,6 +548,91 @@ async function runQuery(sql: string, allowAlter = false): Promise<QueryResult> {
     sql,
   );
   return mapQueryResult(rows, fields);
+}
+
+async function runSqlStatements(
+  sql: string,
+  options: SqlExecutionOptions = {},
+) {
+  const statements = splitSqlStatements(sql);
+
+  if (statements.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "SQL query is empty.",
+    });
+  }
+
+  let result: QueryResult = { columns: [], rows: [] };
+  for (const statement of statements) {
+    result = await runQuery(statement, options);
+  }
+
+  return result;
+}
+
+async function dropAllSchemaObjects() {
+  await pool.query("SET FOREIGN_KEY_CHECKS = 0");
+  await pool.query("DROP VIEW IF EXISTS activeSubscribers");
+
+  for (const tableName of [
+    "SUBSCRIPTION",
+    "FEATURE",
+    "USAGE",
+    "RECHARGE",
+    "SUBSCRIBER",
+    "SERVICE",
+    "PLAN",
+    "CUSTOMER",
+  ]) {
+    await pool.query(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)}`);
+  }
+
+  await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+}
+
+async function reseedDatabase() {
+  await dropAllSchemaObjects();
+
+  const statements = await getSeedStatements({ includeDatabaseSetup: false });
+  for (const statement of statements) {
+    await pool.query(statement);
+  }
+}
+
+const exerciseOneDependencies: Record<string, string[]> = {
+  "1.1": [],
+  "1.2": ["1.1"],
+  "1.3": ["1.1", "1.2"],
+  "1.4": [],
+  "1.5": ["1.1", "1.2", "1.4"],
+  "1.6": [],
+  "1.7": ["1.6"],
+  "1.8": ["1.1", "1.2", "1.6"],
+  "1.9": [],
+};
+
+async function prepareDdlValidation(exercise: Exercise) {
+  if (exercise.id.startsWith("1.")) {
+    await dropAllSchemaObjects();
+
+    for (const dependencyId of exerciseOneDependencies[exercise.id] ?? []) {
+      const dependency = getExercise(dependencyId);
+      if (!dependency) {
+        continue;
+      }
+
+      await runSqlStatements(dependency.solutionQueries[0], {
+        allowAlter: true,
+        allowCreateTable: true,
+        allowDatabaseSetup: true,
+        rollbackDml: false,
+      });
+    }
+    return;
+  }
+
+  await reseedDatabase();
 }
 
 const schemaRouter = t.router({
@@ -360,11 +724,155 @@ const exercisesRouter = t.router({
   }),
 });
 
+function sqlErrorDiff(error: unknown): ResultDiff {
+  return { sqlError: getErrorMessage(error) };
+}
+
+async function validateDqlExercise(
+  exercise: Exercise,
+  userSql: string,
+): Promise<ValidationResponse> {
+  let userResult: QueryResult;
+
+  try {
+    userResult = await runQueryForUser(userSql, false);
+  } catch (error) {
+    return {
+      passed: false,
+      exerciseId: exercise.id,
+      mode: exercise.type,
+      diff: sqlErrorDiff(error),
+    };
+  }
+
+  let firstDiff: ResultDiff | undefined;
+
+  for (const [index, solutionQuery] of exercise.solutionQueries.entries()) {
+    try {
+      const expectedResult = await runQuery(solutionQuery, {
+        rollbackDml: true,
+      });
+      const diff = compareResults(userResult, expectedResult);
+
+      if (!diff) {
+        return {
+          passed: true,
+          exerciseId: exercise.id,
+          mode: exercise.type,
+          matchedSolutionIndex: index + 1,
+          result: userResult,
+        };
+      }
+
+      firstDiff ??= diff;
+    } catch (error) {
+      firstDiff ??= sqlErrorDiff(error);
+    }
+  }
+
+  return {
+    passed: false,
+    exerciseId: exercise.id,
+    mode: exercise.type,
+    result: userResult,
+    diff: firstDiff,
+  };
+}
+
+async function validateDdlExercise(
+  exercise: Exercise,
+  userSql: string,
+): Promise<ValidationResponse> {
+  try {
+    await prepareDdlValidation(exercise);
+    await runSqlStatements(userSql, {
+      allowAlter: true,
+      allowCreateTable: true,
+      allowDatabaseSetup: true,
+      rollbackDml: false,
+    });
+
+    for (const verificationQuery of exercise.verificationQueries ?? []) {
+      const actualResult = await runQuery(verificationQuery.sql, {
+        rollbackDml: true,
+      });
+
+      if (!verificationQuery.expectedOutput) {
+        continue;
+      }
+
+      const expectedResult = toQueryResult(verificationQuery.expectedOutput);
+      const diff = compareResults(actualResult, expectedResult);
+
+      if (diff) {
+        return {
+          passed: false,
+          exerciseId: exercise.id,
+          mode: exercise.type,
+          result: actualResult,
+          diff,
+        };
+      }
+    }
+
+    return {
+      passed: true,
+      exerciseId: exercise.id,
+      mode: exercise.type,
+      matchedSolutionIndex: 1,
+    };
+  } catch (error) {
+    return {
+      passed: false,
+      exerciseId: exercise.id,
+      mode: exercise.type,
+      diff: sqlErrorDiff(error),
+    };
+  } finally {
+    await reseedDatabase();
+  }
+}
+
+const validationRouter = t.router({
+  submit: t.procedure
+    .input(
+      z.object({
+        exerciseId: exerciseIdSchema,
+        userSql: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const exercise = getExercise(input.exerciseId);
+
+      if (!exercise) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `Exercise ${input.exerciseId} does not exist.`,
+        });
+      }
+
+      if (exercise.type === "ddl") {
+        return validateDdlExercise(exercise, input.userSql);
+      }
+
+      return validateDqlExercise(exercise, input.userSql);
+    }),
+});
+
+const dbRouter = t.router({
+  reseed: t.procedure.mutation(async () => {
+    await reseedDatabase();
+    return { status: "ok" as const };
+  }),
+});
+
 export const appRouter = t.router({
   health: t.procedure.query(() => ({ status: "ok" as const })),
+  db: dbRouter,
   exercises: exercisesRouter,
   schema: schemaRouter,
   query: queryRouter,
+  validation: validationRouter,
 });
 
 export type AppRouter = typeof appRouter;
