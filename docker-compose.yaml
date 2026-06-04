@@ -3,7 +3,7 @@ services:
     image: mysql:latest
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: Talents
+      MYSQL_DATABASE: DZTelecom
     ports:
       - "3308:3306"
     volumes:

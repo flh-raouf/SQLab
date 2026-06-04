@@ -1,0 +1,23 @@
+{
+  "name": "bdd-revision",
+  "private": true,
+  "packageManager": "bun@1.2.23",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "db:seed": "bun run --cwd packages/db seed"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "turbo": "latest",
+    "typescript": "latest"
+  }
+}

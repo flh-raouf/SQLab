@@ -1,0 +1,19 @@
+{
+  "name": "@bdd-revision/db",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "bun src/seed.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --pretty false"
+  },
+  "dependencies": {
+    "drizzle-orm": "latest",
+    "mysql2": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "latest",
+    "typescript": "latest"
+  }
+}

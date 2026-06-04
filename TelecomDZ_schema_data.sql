@@ -1,7 +1,7 @@
 -- =====================================================
 -- Création de la base de données
 -- =====================================================
-CREATE DATABASE IF NOT EXISTS DZTelecom
+CREATE DATABASE IF NOT EXISTS DZTelecom;
 
 USE DZTelecom;
 
@@ -63,7 +63,7 @@ CREATE TABLE SERVICE (
 -- =====================================================
 -- Table USAGE
 -- =====================================================
-CREATE TABLE USAGE (
+CREATE TABLE `USAGE` (
     phoneNumber VARCHAR(20) NOT NULL,
     serviceId INT NOT NULL,
     usageDateTime DATETIME NOT NULL,
@@ -185,9 +185,9 @@ INSERT INTO SERVICE (serviceName) VALUES
 ('Roaming');
 
 -- =====================================================
--- INSERTION DES USES
+-- INSERTION DES USAGES
 -- =====================================================
-INSERT INTO USES
+INSERT INTO `USAGE`
 (phoneNumber, serviceId, usageDateTime, callDuration, dataBytes, amount)
 VALUES
 ('0550123456', 1, '2024-05-01 10:15:00', 15, 0, 30),
