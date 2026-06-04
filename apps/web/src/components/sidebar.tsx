@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, RotateCcw } from "lucide-react";
+import { CheckCircle2, FlaskConical, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,14 @@ export function Sidebar({
 
       <Separator />
 
-      <div className="px-2 py-2">
+      <div className="px-2 py-2 space-y-1">
+        <Link
+          to="/sandbox"
+          className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground no-underline transition-colors hover:bg-sidebar-hover hover:text-foreground"
+        >
+          <FlaskConical className="h-4 w-4" />
+          Sandbox
+        </Link>
         <Button
           variant="ghost"
           size="sm"
