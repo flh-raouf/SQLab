@@ -9,6 +9,11 @@
   },
   "dependencies": {
     "@bdd-revision/api": "workspace:*",
+    "@codemirror/commands": "latest",
+    "@codemirror/lang-sql": "latest",
+    "@codemirror/state": "latest",
+    "@codemirror/view": "latest",
+    "@uiw/react-codemirror": "latest",
     "@radix-ui/react-dialog": "latest",
     "@radix-ui/react-scroll-area": "latest",
     "@radix-ui/react-separator": "latest",

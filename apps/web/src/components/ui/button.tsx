@@ -1,3 +1,4 @@
+import { Slot } from "@radix-ui/react-slot";
 import { type ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
@@ -18,20 +19,27 @@ const sizes = {
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: keyof typeof variants;
   size?: keyof typeof sizes;
+  asChild?: boolean;
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "md", ...props }, ref) => (
-    <button
-      ref={ref}
-      className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors disabled:opacity-50",
-        variants[variant],
-        sizes[size],
-        className,
-      )}
-      {...props}
-    />
-  ),
+  (
+    { className, variant = "default", size = "md", asChild = false, ...props },
+    ref,
+  ) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp
+        ref={ref}
+        className={cn(
+          "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors disabled:opacity-50",
+          variants[variant],
+          sizes[size],
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
 );
 Button.displayName = "Button";
