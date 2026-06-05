@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { ErDiagram } from "@/components/er-diagram";
+import { ErrorState, LoadingState } from "@/components/query-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Lens } from "@/components/ui/lens";
@@ -105,6 +106,9 @@ export function SchemaViewer({
             aria-label="Close schema viewer"
           />
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Database schema viewer"
             className="fixed inset-4 z-50 mx-auto flex max-w-5xl flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg"
             onKeyDown={(e) => {
               if (
@@ -187,7 +191,12 @@ export function SchemaViewer({
 }
 
 function TablesPanel() {
-  const { data: tables } = trpc.schema.tables.useQuery();
+  const {
+    data: tables,
+    error,
+    isError,
+    isLoading,
+  } = trpc.schema.tables.useQuery();
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
 
@@ -200,6 +209,22 @@ function TablesPanel() {
     });
     setSelectedTable(tableName);
   };
+
+  if (isLoading) {
+    return (
+      <LoadingState label="Loading database tables..." className="py-12" />
+    );
+  }
+
+  if (isError) {
+    return (
+      <ErrorState
+        title="Tables failed to load"
+        error={error}
+        className="mx-auto my-8 max-w-lg"
+      />
+    );
+  }
 
   if (!tables || tables.length === 0) {
     return (
@@ -243,12 +268,33 @@ function TablesPanel() {
 }
 
 function TableDetails({ tableName }: { tableName: string }) {
-  const { data: columns } = trpc.schema.tableColumns.useQuery(tableName);
-  const { data: tableData, isLoading: isDataLoading } =
-    trpc.schema.tableData.useQuery(tableName);
+  const {
+    data: columns,
+    error: columnsError,
+    isError: isColumnsError,
+    isLoading: isColumnsLoading,
+  } = trpc.schema.tableColumns.useQuery(tableName);
+  const {
+    data: tableData,
+    error: tableDataError,
+    isError: isTableDataError,
+    isLoading: isDataLoading,
+  } = trpc.schema.tableData.useQuery(tableName);
 
   return (
     <div className="border-t border-border bg-sidebar/50 px-4 py-3">
+      {isColumnsLoading && (
+        <LoadingState label="Loading columns..." className="py-4" />
+      )}
+
+      {isColumnsError && (
+        <ErrorState
+          title="Columns failed to load"
+          error={columnsError}
+          className="mb-3"
+        />
+      )}
+
       {columns && (
         <div className="mb-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -295,9 +341,15 @@ function TableDetails({ tableName }: { tableName: string }) {
       )}
 
       {isDataLoading && (
-        <p className="py-4 text-center text-sm text-muted-foreground">
-          Loading preview...
-        </p>
+        <LoadingState label="Loading preview..." className="py-4" />
+      )}
+
+      {isTableDataError && (
+        <ErrorState
+          title="Table preview failed to load"
+          error={tableDataError}
+          className="mt-3"
+        />
       )}
 
       {tableData && tableData.rows.length > 0 && (

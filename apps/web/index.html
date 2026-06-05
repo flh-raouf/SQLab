@@ -10,7 +10,50 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        .boot-screen {
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          background: #05070a;
+          color: #c8d3df;
+          font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        .boot-card {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          border-radius: 12px;
+          padding: 16px 18px;
+          background: rgba(15, 23, 42, 0.72);
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+        }
+
+        .boot-spinner {
+          width: 18px;
+          height: 18px;
+          border: 2px solid rgba(148, 163, 184, 0.28);
+          border-top-color: #67e8f9;
+          border-radius: 999px;
+          animation: boot-spin 0.8s linear infinite;
+        }
+
+        @keyframes boot-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+      <div class="boot-screen">
+        <div class="boot-card">
+          <div class="boot-spinner" aria-hidden="true"></div>
+          <span>Loading BDD Revision...</span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, Database, FlaskConical, RotateCcw } from "lucide-react";
 import { useState } from "react";
+import { ErrorState, LoadingState } from "@/components/query-state";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,9 +58,15 @@ export function Sidebar({
   activeExerciseId,
   onReset,
 }: SidebarProps) {
-  const { data: groups, isLoading } = trpc.exercises.byPart.useQuery();
+  const {
+    data: groups,
+    error,
+    isError,
+    isLoading,
+  } = trpc.exercises.byPart.useQuery();
   const { theme, toggle: toggleTheme } = useTheme();
   const [showReset, setShowReset] = useState(false);
+  const shouldShowGroups = !isLoading && !isError;
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -84,53 +91,60 @@ export function Sidebar({
 
       <ScrollArea className="flex-1 px-2 py-2" data-tour="sidebar">
         {isLoading && (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-            Loading exercises...
-          </p>
+          <LoadingState label="Loading exercises..." className="px-3 py-6" />
         )}
 
-        {groups?.map((group) => (
-          <div key={group.part} className="mb-2">
-            <Badge variant="accent" className="mb-1 ml-2 text-xs">
-              {group.part}
-            </Badge>
-            <div className="space-y-0.5">
-              {group.exercises.map((exercise) => {
-                const isActive = exercise.id === activeExerciseId;
-                const isCompleted = completed.includes(exercise.id);
-                const isRevealed = revealedExerciseIds.includes(exercise.id);
-                const isHinted = hintedExerciseIds.includes(exercise.id);
-                const checkColor = getExerciseIconColor({
-                  completedStatus: completedExerciseStatuses[exercise.id],
-                  isCompleted,
-                  isHinted,
-                  isRevealed,
-                });
+        {isError && (
+          <ErrorState
+            title="Exercise list failed"
+            error={error}
+            className="mx-2 my-3"
+          />
+        )}
 
-                return (
-                  <Link
-                    key={exercise.id}
-                    to="/exercise/$exerciseId"
-                    params={{ exerciseId: exercise.id }}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors no-underline",
-                      isActive
-                        ? "bg-sidebar-active text-foreground"
-                        : "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground",
-                    )}
-                  >
-                    <CheckCircle2
-                      className={cn("h-4 w-4 shrink-0", checkColor)}
-                    />
-                    <span className="truncate">{exercise.title}</span>
-                  </Link>
-                );
-              })}
+        {shouldShowGroups &&
+          groups?.map((group) => (
+            <div key={group.part} className="mb-2">
+              <Badge variant="accent" className="mb-1 ml-2 text-xs">
+                {group.part}
+              </Badge>
+              <div className="space-y-0.5">
+                {group.exercises.map((exercise) => {
+                  const isActive = exercise.id === activeExerciseId;
+                  const isCompleted = completed.includes(exercise.id);
+                  const isRevealed = revealedExerciseIds.includes(exercise.id);
+                  const isHinted = hintedExerciseIds.includes(exercise.id);
+                  const checkColor = getExerciseIconColor({
+                    completedStatus: completedExerciseStatuses[exercise.id],
+                    isCompleted,
+                    isHinted,
+                    isRevealed,
+                  });
+
+                  return (
+                    <Link
+                      key={exercise.id}
+                      to="/exercise/$exerciseId"
+                      params={{ exerciseId: exercise.id }}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors no-underline",
+                        isActive
+                          ? "bg-sidebar-active text-foreground"
+                          : "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground",
+                      )}
+                    >
+                      <CheckCircle2
+                        className={cn("h-4 w-4 shrink-0", checkColor)}
+                      />
+                      <span className="truncate">{exercise.title}</span>
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {!isLoading && groups?.length === 0 && (
+        {shouldShowGroups && groups?.length === 0 && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
             No exercises found.
           </p>

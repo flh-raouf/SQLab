@@ -166,6 +166,27 @@ export function ErDiagram() {
     tableName: l.table,
     query: trpc.schema.tableColumns.useQuery(l.table),
   }));
+  const isLoadingColumns = tableColumnQueries.some(
+    ({ query }) => query.isLoading,
+  );
+  const columnsError = tableColumnQueries.find(({ query }) => query.isError)
+    ?.query.error;
+
+  if (isLoadingColumns) {
+    return (
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        Loading ER diagram...
+      </p>
+    );
+  }
+
+  if (columnsError) {
+    return (
+      <p className="py-12 text-center font-mono text-sm text-red-300">
+        {columnsError.message}
+      </p>
+    );
+  }
 
   const columnsMap = new Map<
     string,

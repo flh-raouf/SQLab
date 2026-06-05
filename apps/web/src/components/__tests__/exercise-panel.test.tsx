@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ExercisePanel } from "../exercise-panel";
+
+type ExercisePanelProps = Parameters<typeof ExercisePanel>[0];
 
 describe("ExercisePanel", () => {
   const defaultProps = {
@@ -16,6 +19,42 @@ describe("ExercisePanel", () => {
     onVisibleHintsChange: vi.fn(),
     onShowSolutionChange: vi.fn(),
   };
+
+  function renderControlledExercisePanel(
+    props: Partial<ExercisePanelProps> = {},
+  ) {
+    function ControlledPanel() {
+      const [visibleHints, setVisibleHints] = useState(
+        props.visibleHints ?? defaultProps.visibleHints,
+      );
+      const [showSolution, setShowSolution] = useState(
+        props.showSolution ?? defaultProps.showSolution,
+      );
+
+      return (
+        <ExercisePanel
+          {...defaultProps}
+          {...props}
+          visibleHints={visibleHints}
+          showSolution={showSolution}
+          onVisibleHintsChange={(nextVisibleHints) => {
+            setVisibleHints(nextVisibleHints);
+            (props.onVisibleHintsChange ?? defaultProps.onVisibleHintsChange)(
+              nextVisibleHints,
+            );
+          }}
+          onShowSolutionChange={(nextShowSolution) => {
+            setShowSolution(nextShowSolution);
+            (props.onShowSolutionChange ?? defaultProps.onShowSolutionChange)(
+              nextShowSolution,
+            );
+          }}
+        />
+      );
+    }
+
+    return render(<ControlledPanel />);
+  }
 
   it("renders title and description", () => {
     render(<ExercisePanel {...defaultProps} />);
@@ -35,7 +74,7 @@ describe("ExercisePanel", () => {
 
   it("reveals first hint on click and calls callback", () => {
     const onHintRevealed = vi.fn();
-    render(<ExercisePanel {...defaultProps} onHintRevealed={onHintRevealed} />);
+    renderControlledExercisePanel({ onHintRevealed });
 
     fireEvent.click(screen.getByText("Hint 1 of 2"));
     expect(screen.getByText(/Hint one/)).toBeInTheDocument();
@@ -43,7 +82,7 @@ describe("ExercisePanel", () => {
   });
 
   it("reveals second hint on second click", () => {
-    render(<ExercisePanel {...defaultProps} />);
+    renderControlledExercisePanel();
 
     fireEvent.click(screen.getByText("Hint 1 of 2"));
     fireEvent.click(screen.getByText("Hint 2 of 2"));
@@ -53,7 +92,7 @@ describe("ExercisePanel", () => {
   });
 
   it("disables hint button when all hints revealed", () => {
-    render(<ExercisePanel {...defaultProps} hints={["Only hint"]} />);
+    renderControlledExercisePanel({ hints: ["Only hint"] });
 
     const hintButton = screen.getByRole("button", { name: /Hint/ });
     fireEvent.click(hintButton);
@@ -61,7 +100,7 @@ describe("ExercisePanel", () => {
   });
 
   it("shows solution button initially and hides after reveal", () => {
-    render(<ExercisePanel {...defaultProps} />);
+    renderControlledExercisePanel();
 
     expect(screen.getByText("Solution")).toBeInTheDocument();
 
@@ -86,12 +125,7 @@ describe("ExercisePanel", () => {
 
   it("reveals solution queries after confirmation", () => {
     const onSolutionRevealed = vi.fn();
-    render(
-      <ExercisePanel
-        {...defaultProps}
-        onSolutionRevealed={onSolutionRevealed}
-      />,
-    );
+    renderControlledExercisePanel({ onSolutionRevealed });
 
     fireEvent.click(screen.getByText("Solution"));
     fireEvent.click(screen.getByText("Reveal solution"));
@@ -101,12 +135,9 @@ describe("ExercisePanel", () => {
   });
 
   it("renders multiple solution queries", () => {
-    render(
-      <ExercisePanel
-        {...defaultProps}
-        solutionQueries={["SELECT 1", "SELECT 2"]}
-      />,
-    );
+    renderControlledExercisePanel({
+      solutionQueries: ["SELECT 1", "SELECT 2"],
+    });
 
     fireEvent.click(screen.getByText("Solution"));
     fireEvent.click(screen.getByText("Reveal solution"));

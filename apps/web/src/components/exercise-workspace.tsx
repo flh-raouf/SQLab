@@ -9,14 +9,15 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ExercisePanel } from "@/components/exercise-panel";
+import { ErrorState, LoadingState } from "@/components/query-state";
 import { ResultsTable } from "@/components/results-table";
 import { SqlEditor } from "@/components/sql-editor";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ValidationFeedback } from "@/components/validation-feedback";
 import { useExerciseState } from "@/hooks/use-exercise-state";
-import { useProgress } from "@/hooks/use-progress";
 import type { CompletedExerciseStatus } from "@/hooks/use-progress";
+import { useProgress } from "@/hooks/use-progress";
 import { fireCannonConfetti, fireConfetti } from "@/lib/confetti";
 import { trpc } from "@/lib/trpc";
 import type { ResultDiff } from "@/lib/validation";
@@ -32,7 +33,12 @@ function getSolutionLabel(index: number) {
 }
 
 export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
-  const { data: exercise, isLoading } = trpc.exercises.get.useQuery(exerciseId);
+  const {
+    data: exercise,
+    error,
+    isError,
+    isLoading,
+  } = trpc.exercises.get.useQuery(exerciseId);
   const {
     completed,
     markComplete,
@@ -116,10 +122,26 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
     },
   });
 
-  if (isLoading || !exercise) {
+  if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground">Loading exercise...</p>
+        <LoadingState label="Loading exercise..." />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <ErrorState title="Exercise failed to load" error={error} />
+      </div>
+    );
+  }
+
+  if (!exercise) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">Exercise not found.</p>
       </div>
     );
   }
