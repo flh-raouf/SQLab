@@ -1292,6 +1292,26 @@ const schemaRouter = t.router({
   }),
 
   erDiagram: t.procedure.query(() => ({ path: erDiagramPath })),
+
+  batched: t.procedure.query(async () => {
+    const metadata = await getSchemaMetadata();
+    const columnsByTable: Record<
+      string,
+      {
+        columnName: string;
+        columnType: string;
+        isNullable: boolean;
+        columnKey: string;
+        columnDefault: unknown;
+        extra: string;
+        ordinalPosition: number;
+      }[]
+    > = {};
+    for (const [tableName, columns] of metadata.columnsByTable) {
+      columnsByTable[tableName] = columns;
+    }
+    return { tables: metadata.tables, columnsByTable };
+  }),
 });
 
 const queryRouter = t.router({

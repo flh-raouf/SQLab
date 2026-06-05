@@ -162,17 +162,9 @@ function roundedRoutePath(points: Array<{ x: number; y: number }>) {
 }
 
 export function ErDiagram() {
-  const tableColumnQueries = layout.map((l) => ({
-    tableName: l.table,
-    query: trpc.schema.tableColumns.useQuery(l.table),
-  }));
-  const isLoadingColumns = tableColumnQueries.some(
-    ({ query }) => query.isLoading,
-  );
-  const columnsError = tableColumnQueries.find(({ query }) => query.isError)
-    ?.query.error;
+  const batchedQuery = trpc.schema.batched.useQuery();
 
-  if (isLoadingColumns) {
+  if (batchedQuery.isLoading) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
         Loading ER diagram...
@@ -180,10 +172,10 @@ export function ErDiagram() {
     );
   }
 
-  if (columnsError) {
+  if (batchedQuery.isError) {
     return (
       <p className="py-12 text-center font-mono text-sm text-red-300">
-        {columnsError.message}
+        {batchedQuery.error.message}
       </p>
     );
   }
@@ -192,16 +184,19 @@ export function ErDiagram() {
     string,
     { name: string; key: string; type: string }[]
   >();
-  for (const { tableName, query } of tableColumnQueries) {
-    if (query.data) {
-      columnsMap.set(
-        tableName,
-        query.data.map((c) => ({
-          name: c.columnName,
-          key: c.columnKey,
-          type: c.columnType,
-        })),
-      );
+  if (batchedQuery.data) {
+    for (const table of layout) {
+      const cols = batchedQuery.data.columnsByTable[table.table];
+      if (cols) {
+        columnsMap.set(
+          table.table,
+          cols.map((c) => ({
+            name: c.columnName,
+            key: c.columnKey,
+            type: c.columnType,
+          })),
+        );
+      }
     }
   }
 
