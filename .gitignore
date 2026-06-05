@@ -5,3 +5,4 @@ dist
 .DS_Store
 packages/db/drizzle.config.d.ts
 packages/db/drizzle.config.js
+playwright-report/
