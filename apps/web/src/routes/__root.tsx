@@ -9,6 +9,8 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { shouldAutoStartTour, TourProvider, useTour } from "@/hooks/use-tour";
 import { trpc } from "@/lib/trpc";
 
+const apiUrl = import.meta.env.VITE_API_URL ?? "/trpc";
+
 function RootInner() {
   const { start } = useTour();
 
@@ -31,7 +33,7 @@ export function RootComponent() {
   const [queryClient] = useState(() => new QueryClient());
   const [trpcClient] = useState(() =>
     trpc.createClient({
-      links: [httpBatchLink({ url: "http://localhost:3001" })],
+      links: [httpBatchLink({ url: apiUrl })],
     }),
   );
 
