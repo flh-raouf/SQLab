@@ -28,6 +28,11 @@ type QueryResultData = {
   affectedRows?: number;
 };
 
+type DdlJobState = {
+  jobId: string;
+  status: string;
+};
+
 function getSolutionLabel(index: number) {
   return index === 0 ? "Teacher solution" : `Alternative solution ${index}`;
 }
@@ -60,6 +65,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [runResult, setRunResult] = useState<QueryResultData | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [ddlJob, setDdlJob] = useState<DdlJobState | null>(null);
   const [validationResult, setValidationResult] = useState<{
     passed: boolean;
     diff?: ResultDiff;
@@ -67,6 +73,20 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
     matchedSolutionIndex?: number;
     verificationLabel?: string;
   } | null>(null);
+
+  const ddlJobStatusQuery = trpc.validation.jobStatus.useQuery(
+    ddlJob?.jobId ?? "",
+    {
+      enabled: !!ddlJob?.jobId,
+      refetchInterval: 1000,
+      staleTime: 0,
+    },
+  );
+
+  const isDdlPending =
+    ddlJob?.status === "pending" || ddlJob?.status === "running";
+  const isSubmitted =
+    validationResult?.passed ?? completed.includes(exerciseId);
 
   useEffect(() => {
     if (prevExerciseIdRef.current !== exerciseId) {
@@ -78,6 +98,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
       setRunResult(null);
       setRunError(null);
       setValidationResult(null);
+      setDdlJob(null);
       prevExerciseIdRef.current = exerciseId;
     }
   }, [exerciseId, sql, visibleHints, showSolution, saveState, getState]);
@@ -99,6 +120,16 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
 
   const submitMutation = trpc.validation.submit.useMutation({
     onSuccess: (data) => {
+      if ("status" in data && data.status === "pending") {
+        setDdlJob({
+          jobId: (data as unknown as { jobId: string }).jobId,
+          status: "pending",
+        });
+        setValidationResult(null);
+        return;
+      }
+
+      setDdlJob(null);
       setValidationResult(data);
       if (data.passed) {
         const status: CompletedExerciseStatus = revealedExerciseIds.includes(
@@ -119,9 +150,44 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
       }
     },
     onError: (error) => {
+      setDdlJob(null);
       setValidationResult({ passed: false, diff: { sqlError: error.message } });
     },
   });
+
+  if (
+    ddlJobStatusQuery.data &&
+    ddlJobStatusQuery.data.status !== ddlJob?.status
+  ) {
+    const job = ddlJobStatusQuery.data;
+    setDdlJob({ jobId: job.id, status: job.status });
+
+    if (job.status === "completed" && job.result) {
+      setValidationResult(job.result);
+      if (job.result.passed) {
+        const st: CompletedExerciseStatus = revealedExerciseIds.includes(
+          exerciseId,
+        )
+          ? "revealed"
+          : hintedExerciseIds.includes(exerciseId)
+            ? "hinted"
+            : "success";
+        markComplete(exerciseId, st);
+        if (exercise?.nextExerciseId === null) {
+          setShowCompletionModal(true);
+          fireCannonConfetti();
+        } else {
+          setShowSuccessModal(true);
+          fireConfetti();
+        }
+      }
+    } else if (job.status === "failed" || job.status === "timeout") {
+      setValidationResult({
+        passed: false,
+        diff: { sqlError: job.error ?? "Validation did not complete." },
+      });
+    }
+  }
 
   if (isLoading) {
     return (
@@ -147,11 +213,9 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
     );
   }
 
-  const isSubmitted =
-    validationResult?.passed ?? completed.includes(exerciseId);
-
   const handleSubmit = () => {
     setValidationResult(null);
+    setDdlJob(null);
     submitMutation.mutate({ exerciseId, userSql: sql });
   };
 
@@ -193,7 +257,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
           onChange={setSql}
           onSubmit={handleSubmit}
           onRun={handleRun}
-          isSubmitting={submitMutation.isPending}
+          isSubmitting={submitMutation.isPending || isDdlPending}
           isRunning={runMutation.isPending}
         />
 
@@ -213,7 +277,34 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
             </div>
           )}
 
-          {validationResult && (
+          {isDdlPending && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Submission result
+              </p>
+              <ValidationFeedback
+                passed={false}
+                status={ddlJob?.status}
+                jobId={ddlJob?.jobId}
+              />
+            </div>
+          )}
+
+          {ddlJobStatusQuery.isError && ddlJob && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Submission result
+              </p>
+              <ValidationFeedback
+                passed={false}
+                status="failed"
+                error="Lost connection while checking job status."
+                onRetry={() => ddlJobStatusQuery.refetch()}
+              />
+            </div>
+          )}
+
+          {validationResult && !isDdlPending && (
             <div>
               <p className="mb-2 text-xs font-medium text-muted-foreground">
                 Submission result

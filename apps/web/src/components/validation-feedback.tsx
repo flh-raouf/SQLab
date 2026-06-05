@@ -1,3 +1,4 @@
+import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import type { ResultDiff } from "@/lib/validation";
 
 type ValidationFeedbackProps = {
@@ -6,6 +7,10 @@ type ValidationFeedbackProps = {
   result?: { columns: string[]; rows: Record<string, unknown>[] };
   diff?: ResultDiff;
   verificationLabel?: string;
+  status?: string;
+  jobId?: string;
+  error?: string;
+  onRetry?: () => void;
 };
 
 function getSolutionLabel(solutionIndex?: number) {
@@ -19,6 +24,10 @@ export function ValidationFeedback({
   result,
   diff,
   verificationLabel,
+  status,
+  jobId,
+  error,
+  onRetry,
 }: ValidationFeedbackProps) {
   if (passed) {
     const solutionLabel = getSolutionLabel(matchedSolutionIndex);
@@ -34,6 +43,55 @@ export function ValidationFeedback({
             Your query returned {result.rows.length} row
             {result.rows.length !== 1 ? "s" : ""} matching the expected output.
           </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "pending" || status === "running") {
+    return (
+      <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 p-4">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-yellow-400" />
+          <h3 className="font-semibold text-yellow-400">
+            {status === "pending" ? "Queued" : "Validating..."}
+          </h3>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {status === "pending"
+            ? "Your DDL submission has been enqueued. A worker will validate it shortly."
+            : "Running your DDL statements in an isolated environment..."}
+        </p>
+        {jobId && (
+          <p className="mt-1 text-xs text-muted-foreground font-mono">
+            Job: {jobId.slice(0, 8)}...
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "failed" || status === "timeout") {
+    return (
+      <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4">
+        <div className="mb-2 flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive shrink-0" />
+          <h3 className="font-semibold text-destructive">
+            {status === "timeout"
+              ? "Validation timed out"
+              : "Validation failed"}
+          </h3>
+        </div>
+        {error && <p className="mb-3 text-sm text-muted-foreground">{error}</p>}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-sidebar transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
         )}
       </div>
     );
