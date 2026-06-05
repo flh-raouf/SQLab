@@ -29,9 +29,6 @@ export function TourOverlay() {
         if (step.target === "[data-tour=question]") {
           const card = el.querySelector(".rounded-lg");
           if (card) rect = card.getBoundingClientRect();
-        } else if (step.target === "[data-tour=editor]") {
-          const editor = el.querySelector(".cm-editor");
-          if (editor) rect = editor.getBoundingClientRect();
         } else if (step.target === "[data-tour=results]") {
           // Results area may be empty; highlight itself even if collapsed
           rect = el.getBoundingClientRect();
