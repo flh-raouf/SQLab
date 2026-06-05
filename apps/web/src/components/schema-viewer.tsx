@@ -88,8 +88,9 @@ export function SchemaViewer({
         className="border border-border bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
       >
         <Database className="mr-1 h-4 w-4" />
-        Database Schema
-        <span className="ml-1.5 inline-flex items-center gap-0.5">
+        <span className="hidden lg:inline">Database Schema</span>
+        <span className="lg:hidden">DB Schema</span>
+        <span className="ml-1.5 hidden lg:inline-flex items-center gap-0.5">
           <Kbd>{modKey()}</Kbd>+<Kbd>\</Kbd>
         </span>
       </Button>

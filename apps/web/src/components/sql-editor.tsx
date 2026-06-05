@@ -106,7 +106,7 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
               className="inline-flex h-8 items-center gap-2 rounded-md bg-card border border-border px-4 text-sm font-medium text-foreground hover:bg-sidebar-hover disabled:opacity-50"
             >
               {isRunning ? "Running..." : "Run"}
-              <span className="inline-flex items-center gap-0.5">
+              <span className="hidden lg:inline-flex items-center gap-0.5">
                 <Key>{modKey()}</Key>+<Key>Enter</Key>
               </span>
             </button>
@@ -119,7 +119,7 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
               className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
               {isSubmitting ? "Checking..." : "Submit"}
-              <span className="inline-flex items-center gap-0.5">
+              <span className="hidden lg:inline-flex items-center gap-0.5">
                 <Key>{modKey()}</Key>+<Key>Shift</Key>+<Key>Enter</Key>
               </span>
             </button>
