@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { getExercise } from "../exercises";
 import {
+  buildSchemaMetadata,
+  clearDqlExpectedOutputCache,
   compareResults,
   consumeRateLimit,
+  generateDqlExpectedOutputs,
+  getCachedDqlExpectedOutputs,
+  getDqlExpectedOutputCacheSize,
   getForwardedIp,
   normalizeRow,
   normalizeValue,
@@ -36,6 +42,125 @@ describe("rate limiting helpers", () => {
     expect(
       consumeRateLimit(store, "validation.submit:ip-a", 2_000, 1, 1_000),
     ).toBe(true);
+  });
+});
+
+describe("DQL expected output cache", () => {
+  it("generates expected outputs from every DQL solution query", async () => {
+    const exercise = getExercise("2.1.1");
+    if (!exercise) throw new Error("Missing test exercise");
+    const executedQueries: string[] = [];
+
+    const outputs = await generateDqlExpectedOutputs(exercise, async (sql) => {
+      executedQueries.push(sql);
+      return {
+        columns: ["query"],
+        rows: [{ query: sql }],
+      };
+    });
+
+    expect(executedQueries).toEqual(exercise.solutionQueries);
+    expect(outputs).toHaveLength(exercise.solutionQueries.length);
+    expect(outputs[0]?.rows).toEqual([{ query: exercise.solutionQueries[0] }]);
+  });
+
+  it("reuses generated expected outputs for repeated validation lookups", async () => {
+    clearDqlExpectedOutputCache();
+    const exercise = getExercise("2.1.2");
+    if (!exercise) throw new Error("Missing test exercise");
+    let executionCount = 0;
+
+    const execute = async (sql: string) => {
+      executionCount += 1;
+      return {
+        columns: ["query"],
+        rows: [{ query: sql }],
+      };
+    };
+
+    const first = await getCachedDqlExpectedOutputs(exercise, execute);
+    const second = await getCachedDqlExpectedOutputs(exercise, execute);
+
+    expect(first).toBe(second);
+    expect(executionCount).toBe(exercise.solutionQueries.length);
+    expect(getDqlExpectedOutputCacheSize()).toBe(1);
+  });
+
+  it("does not generate expected outputs for DDL exercises", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing test exercise");
+
+    const outputs = await generateDqlExpectedOutputs(exercise, async () => {
+      throw new Error("DDL exercises should not execute solution queries");
+    });
+
+    expect(outputs).toEqual([]);
+  });
+});
+
+describe("schema metadata cache builder", () => {
+  it("builds table, column, and full-schema metadata from one query result", () => {
+    const metadata = buildSchemaMetadata([
+      {
+        tableName: "CUSTOMER",
+        columnName: "customerId",
+        columnType: "int",
+        isNullable: "NO",
+        columnKey: "PRI",
+        columnDefault: null,
+        extra: "auto_increment",
+        ordinalPosition: 1,
+      },
+      {
+        tableName: "CUSTOMER",
+        columnName: "customerName",
+        columnType: "varchar(150)",
+        isNullable: "NO",
+        columnKey: "",
+        columnDefault: null,
+        extra: "",
+        ordinalPosition: 2,
+      },
+      {
+        tableName: "SERVICE",
+        columnName: "serviceId",
+        columnType: "int",
+        isNullable: "NO",
+        columnKey: "PRI",
+        columnDefault: null,
+        extra: "auto_increment",
+        ordinalPosition: 1,
+      },
+    ]);
+
+    expect(metadata.tables).toEqual([
+      { tableName: "CUSTOMER" },
+      { tableName: "SERVICE" },
+    ]);
+    expect(metadata.columnsByTable.get("CUSTOMER")).toEqual([
+      {
+        columnName: "customerId",
+        columnType: "int",
+        isNullable: false,
+        columnKey: "PRI",
+        columnDefault: null,
+        extra: "auto_increment",
+        ordinalPosition: 1,
+      },
+      {
+        columnName: "customerName",
+        columnType: "varchar(150)",
+        isNullable: false,
+        columnKey: "",
+        columnDefault: null,
+        extra: "",
+        ordinalPosition: 2,
+      },
+    ]);
+    expect(metadata.fullSchema).toEqual({
+      CUSTOMER: ["customerId", "customerName"],
+      SERVICE: ["serviceId"],
+    });
   });
 });
 

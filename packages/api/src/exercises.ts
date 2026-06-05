@@ -34,6 +34,22 @@ export type ExerciseGroup = {
   exercises: ExerciseSummary[];
 };
 
+const summarizeExercise = ({
+  id,
+  part,
+  order,
+  title,
+  type,
+  allowAlter,
+}: Exercise): ExerciseSummary => ({
+  id,
+  part,
+  order,
+  title,
+  type,
+  allowAlter,
+});
+
 const baseCreateDatabasePrefix =
   "CREATE DATABASE IF NOT EXISTS DZTelecom;\nUSE DZTelecom;";
 
@@ -950,25 +966,15 @@ WHERE tc.TABLE_SCHEMA = DATABASE()
   },
 ] satisfies Exercise[];
 
-export function getExercise(id: string) {
-  return exercises.find((exercise) => exercise.id === id) ?? null;
-}
+const exerciseById = new Map(
+  exercises.map((exercise) => [exercise.id, exercise]),
+);
+const exerciseSummaries = exercises.map(summarizeExercise);
 
-export function getExerciseSummaries(): ExerciseSummary[] {
-  return exercises.map(({ id, part, order, title, type, allowAlter }) => ({
-    id,
-    part,
-    order,
-    title,
-    type,
-    allowAlter,
-  }));
-}
-
-export function getExercisesByPart(): ExerciseGroup[] {
+const exerciseGroups = (() => {
   const groups = new Map<string, ExerciseSummary[]>();
 
-  for (const exercise of getExerciseSummaries()) {
+  for (const exercise of exerciseSummaries) {
     const group = groups.get(exercise.part) ?? [];
     group.push(exercise);
     groups.set(exercise.part, group);
@@ -978,6 +984,18 @@ export function getExercisesByPart(): ExerciseGroup[] {
     part,
     exercises: [...groupedExercises].sort((a, b) => a.order - b.order),
   }));
+})();
+
+export function getExercise(id: string) {
+  return exerciseById.get(id) ?? null;
+}
+
+export function getExerciseSummaries(): ExerciseSummary[] {
+  return exerciseSummaries;
+}
+
+export function getExercisesByPart(): ExerciseGroup[] {
+  return exerciseGroups;
 }
 
 export function getNextExerciseId(id: string) {

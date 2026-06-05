@@ -1,5 +1,5 @@
 import { createHTTPServer } from "@trpc/server/adapters/standalone";
-import { appRouter, createContext } from "./router";
+import { appRouter, createContext, warmStaticCaches } from "./router";
 
 const port = Number(process.env.API_PORT ?? 3001);
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
@@ -23,3 +23,9 @@ createHTTPServer({
 }).listen(port);
 
 console.log(`BDD Revision API listening on http://localhost:${port}`);
+
+if (process.env.WARM_STATIC_CACHES !== "false") {
+  warmStaticCaches().catch((error) => {
+    console.warn("Static cache warmup failed; will retry lazily.", error);
+  });
+}

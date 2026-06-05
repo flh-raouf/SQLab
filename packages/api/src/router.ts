@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   type Exercise,
   type ExpectedOutput,
+  exercises,
   getExercise,
   getExerciseSummaries,
   getExercisesByPart,
@@ -198,6 +199,42 @@ const identifierSchema = z.string().regex(/^[A-Za-z0-9_]+$/);
 
 const quoteIdentifier = (identifier: string) =>
   `\`${identifier.replaceAll("`", "``")}\``;
+
+type SchemaColumnMetadata = {
+  columnName: string;
+  columnType: string;
+  isNullable: boolean;
+  columnKey: string;
+  columnDefault: unknown;
+  extra: string;
+  ordinalPosition: number;
+};
+
+type SchemaTableMetadata = {
+  tableName: string;
+};
+
+type SchemaColumnRow = {
+  tableName: unknown;
+  columnName: unknown;
+  columnType: unknown;
+  isNullable: unknown;
+  columnKey: unknown;
+  columnDefault: unknown;
+  extra: unknown;
+  ordinalPosition: unknown;
+};
+
+type SchemaMetadata = {
+  tables: SchemaTableMetadata[];
+  columnsByTable: Map<string, SchemaColumnMetadata[]>;
+  fullSchema: Record<string, string[]>;
+};
+
+type SolutionQueryExecutor = (sql: string) => Promise<QueryResult>;
+
+const dqlExpectedOutputCache = new Map<string, Promise<QueryResult[]>>();
+let schemaMetadataCache: Promise<SchemaMetadata> | null = null;
 
 export function stripLeadingComments(sql: string) {
   let rest = sql.trimStart();
@@ -493,6 +530,75 @@ function toQueryResult(expectedOutput: ExpectedOutput): QueryResult {
   };
 }
 
+export function clearDqlExpectedOutputCache() {
+  dqlExpectedOutputCache.clear();
+}
+
+export function clearSchemaMetadataCache() {
+  schemaMetadataCache = null;
+}
+
+function clearStaticCaches() {
+  clearDqlExpectedOutputCache();
+  clearSchemaMetadataCache();
+}
+
+export async function generateDqlExpectedOutputs(
+  exercise: Exercise,
+  executeSolutionQuery: SolutionQueryExecutor,
+) {
+  if (exercise.type !== "dql") {
+    return [];
+  }
+
+  return Promise.all(exercise.solutionQueries.map(executeSolutionQuery));
+}
+
+export function getDqlExpectedOutputCacheSize() {
+  return dqlExpectedOutputCache.size;
+}
+
+export async function getCachedDqlExpectedOutputs(
+  exercise: Exercise,
+  executeSolutionQuery: SolutionQueryExecutor = (sql) =>
+    runQuery(sql, { rollbackDml: true }),
+) {
+  if (exercise.type !== "dql") {
+    return [];
+  }
+
+  const cached = dqlExpectedOutputCache.get(exercise.id);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = generateDqlExpectedOutputs(exercise, executeSolutionQuery);
+  dqlExpectedOutputCache.set(exercise.id, pending);
+
+  try {
+    return await pending;
+  } catch (error) {
+    dqlExpectedOutputCache.delete(exercise.id);
+    throw error;
+  }
+}
+
+export async function primeDqlExpectedOutputCache(
+  executeSolutionQuery?: SolutionQueryExecutor,
+) {
+  await Promise.all(
+    exercises
+      .filter((exercise) => exercise.type === "dql")
+      .map((exercise) =>
+        getCachedDqlExpectedOutputs(exercise, executeSolutionQuery),
+      ),
+  );
+}
+
+export async function warmStaticCaches() {
+  await Promise.all([primeDqlExpectedOutputCache(), getSchemaMetadata()]);
+}
+
 function isNumericLike(value: unknown) {
   if (typeof value === "number") {
     return Number.isFinite(value);
@@ -599,16 +705,81 @@ export function compareResults(
   return Object.keys(diff).length === 0 ? null : diff;
 }
 
-async function assertTableExists(tableName: string) {
-  const parsedTableName = identifierSchema.parse(tableName);
+export function buildSchemaMetadata(rows: SchemaColumnRow[]): SchemaMetadata {
+  const tableNames = new Set<string>();
+  const columnsByTable = new Map<string, SchemaColumnMetadata[]>();
+  const fullSchema: Record<string, string[]> = {};
+
+  for (const row of rows) {
+    const tableName = String(row.tableName);
+    tableNames.add(tableName);
+
+    if (!columnsByTable.has(tableName)) {
+      columnsByTable.set(tableName, []);
+      fullSchema[tableName] = [];
+    }
+
+    if (row.columnName === null || row.columnName === undefined) {
+      continue;
+    }
+
+    const columnName = String(row.columnName);
+    columnsByTable.get(tableName)?.push({
+      columnName,
+      columnType: String(row.columnType),
+      isNullable: row.isNullable === "YES",
+      columnKey: String(row.columnKey ?? ""),
+      columnDefault: row.columnDefault ?? null,
+      extra: String(row.extra ?? ""),
+      ordinalPosition: Number(row.ordinalPosition),
+    });
+    fullSchema[tableName].push(columnName);
+  }
+
+  const tables = Array.from(tableNames)
+    .sort()
+    .map((tableName) => ({ tableName }));
+
+  return { tables, columnsByTable, fullSchema };
+}
+
+async function loadSchemaMetadata() {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT TABLE_NAME
-     FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
-    [databaseName, parsedTableName],
+    `SELECT
+       t.TABLE_NAME AS tableName,
+       c.COLUMN_NAME AS columnName,
+       c.COLUMN_TYPE AS columnType,
+       c.IS_NULLABLE AS isNullable,
+       c.COLUMN_KEY AS columnKey,
+       c.COLUMN_DEFAULT AS columnDefault,
+       c.EXTRA AS extra,
+       c.ORDINAL_POSITION AS ordinalPosition
+     FROM INFORMATION_SCHEMA.TABLES t
+     LEFT JOIN INFORMATION_SCHEMA.COLUMNS c
+       ON c.TABLE_SCHEMA = t.TABLE_SCHEMA
+      AND c.TABLE_NAME = t.TABLE_NAME
+     WHERE t.TABLE_SCHEMA = ? AND t.TABLE_TYPE = 'BASE TABLE'
+     ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION`,
+    [databaseName],
   );
 
-  if (rows.length === 0) {
+  return buildSchemaMetadata(rows as SchemaColumnRow[]);
+}
+
+async function getSchemaMetadata() {
+  schemaMetadataCache ??= loadSchemaMetadata().catch((error) => {
+    schemaMetadataCache = null;
+    throw error;
+  });
+
+  return schemaMetadataCache;
+}
+
+async function assertTableExists(tableName: string) {
+  const parsedTableName = identifierSchema.parse(tableName);
+  const metadata = await getSchemaMetadata();
+
+  if (!metadata.columnsByTable.has(parsedTableName)) {
     throw new TRPCError({
       code: "NOT_FOUND",
       message: `Table ${parsedTableName} does not exist in ${databaseName}.`,
@@ -696,6 +867,8 @@ async function reseedDatabase() {
   for (const statement of statements) {
     await pool.query(statement);
   }
+
+  clearStaticCaches();
 }
 
 const exerciseOneDependencies: Record<string, string[]> = {
@@ -756,45 +929,14 @@ async function releaseDdlLock(lockKey: string) {
 
 const schemaRouter = t.router({
   tables: t.procedure.query(async () => {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT TABLE_NAME AS tableName
-       FROM INFORMATION_SCHEMA.TABLES
-       WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
-       ORDER BY TABLE_NAME`,
-      [databaseName],
-    );
-
-    return (rows as RowDataPacket[]).map((row) => ({
-      tableName: String(row.tableName),
-    }));
+    const metadata = await getSchemaMetadata();
+    return metadata.tables;
   }),
 
   tableColumns: t.procedure.input(identifierSchema).query(async ({ input }) => {
     const tableName = await assertTableExists(input);
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT
-         COLUMN_NAME AS columnName,
-         COLUMN_TYPE AS columnType,
-         IS_NULLABLE AS isNullable,
-         COLUMN_KEY AS columnKey,
-         COLUMN_DEFAULT AS columnDefault,
-         EXTRA AS extra,
-         ORDINAL_POSITION AS ordinalPosition
-       FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-       ORDER BY ORDINAL_POSITION`,
-      [databaseName, tableName],
-    );
-
-    return (rows as RowDataPacket[]).map((row) => ({
-      columnName: String(row.columnName),
-      columnType: String(row.columnType),
-      isNullable: row.isNullable === "YES",
-      columnKey: String(row.columnKey ?? ""),
-      columnDefault: row.columnDefault ?? null,
-      extra: String(row.extra ?? ""),
-      ordinalPosition: Number(row.ordinalPosition),
-    }));
+    const metadata = await getSchemaMetadata();
+    return metadata.columnsByTable.get(tableName) ?? [];
   }),
 
   tableData: t.procedure.input(identifierSchema).query(async ({ input }) => {
@@ -805,25 +947,8 @@ const schemaRouter = t.router({
   }),
 
   fullSchema: t.procedure.query(async () => {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
-       FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (
-         SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
-         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
-       )
-       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
-      [databaseName, databaseName],
-    );
-
-    const schema: Record<string, string[]> = {};
-    for (const row of rows as RowDataPacket[]) {
-      const table = String(row.tableName);
-      const column = String(row.columnName);
-      if (!schema[table]) schema[table] = [];
-      schema[table].push(column);
-    }
-    return schema;
+    const metadata = await getSchemaMetadata();
+    return metadata.fullSchema;
   }),
 
   erDiagram: t.procedure.query(() => ({ path: erDiagramPath })),
@@ -889,11 +1014,22 @@ async function validateDqlExercise(
 
   let firstDiff: ResultDiff | undefined;
 
-  for (const [index, solutionQuery] of exercise.solutionQueries.entries()) {
+  let expectedResults: QueryResult[];
+
+  try {
+    expectedResults = await getCachedDqlExpectedOutputs(exercise);
+  } catch (error) {
+    return {
+      passed: false,
+      exerciseId: exercise.id,
+      mode: exercise.type,
+      result: userResult,
+      diff: sqlErrorDiff(error),
+    };
+  }
+
+  for (const [index, expectedResult] of expectedResults.entries()) {
     try {
-      const expectedResult = await runQuery(solutionQuery, {
-        rollbackDml: true,
-      });
       const diff = compareResults(userResult, expectedResult);
 
       if (!diff) {

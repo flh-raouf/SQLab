@@ -65,6 +65,10 @@ describe("getExerciseSummaries", () => {
     expect(summaries).toHaveLength(26);
   });
 
+  it("reuses the cached summary collection", () => {
+    expect(getExerciseSummaries()).toBe(getExerciseSummaries());
+  });
+
   it("each summary has required fields", () => {
     for (const s of getExerciseSummaries()) {
       expect(s).toHaveProperty("id");
@@ -92,6 +96,10 @@ describe("getExercisesByPart", () => {
       const orders = group.exercises.map((e) => e.order);
       expect(orders).toEqual([...orders].sort((a, b) => a - b));
     }
+  });
+
+  it("reuses the cached grouped collection", () => {
+    expect(getExercisesByPart()).toBe(getExercisesByPart());
   });
 
   it("Exercise 1 has 9 exercises", () => {
