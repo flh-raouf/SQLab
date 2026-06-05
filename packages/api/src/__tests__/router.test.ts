@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   classifySql,
   compareResults,
+  createUserQueryOptions,
+  enforceQueryResultLimits,
   normalizeRow,
   normalizeValue,
   splitSqlStatements,
   stripLeadingComments,
+  stripSqlCommentsAndLiterals,
+  validateSqlSafety,
 } from "../router";
 
 describe("stripLeadingComments", () => {
@@ -125,6 +129,101 @@ describe("classifySql", () => {
 
   it("strips leading comments before classification", () => {
     expect(classifySql("-- comment\nSELECT 1;")).toBe("read");
+  });
+});
+
+describe("SQL safety policy", () => {
+  it("rejects SQL over the configured max length", () => {
+    expect(() =>
+      validateSqlSafety("SELECT 1".padEnd(21, " "), { maxSqlLength: 20 }),
+    ).toThrow(TRPCError);
+  });
+
+  it("blocks deliberate delay and CPU-burn functions", () => {
+    expect(() => validateSqlSafety("SELECT SLEEP(1)")).toThrow(TRPCError);
+    expect(() =>
+      validateSqlSafety("SELECT BENCHMARK(1000000, SHA1('x'))"),
+    ).toThrow(TRPCError);
+    expect(() => validateSqlSafety("SELECT GET_LOCK('x', 10)")).toThrow(
+      TRPCError,
+    );
+  });
+
+  it("blocks file access and server-side output writes", () => {
+    expect(() => validateSqlSafety("SELECT LOAD_FILE('/etc/passwd')")).toThrow(
+      TRPCError,
+    );
+    expect(() =>
+      validateSqlSafety("SELECT * FROM CUSTOMER INTO OUTFILE '/tmp/out.csv'"),
+    ).toThrow(TRPCError);
+  });
+
+  it("adds a mysql2 timeout to user query execution options", () => {
+    expect(createUserQueryOptions("SELECT 1")).toEqual({
+      sql: "SELECT 1",
+      timeout: expect.any(Number),
+    });
+    expect(createUserQueryOptions("SELECT 1").timeout).toBeGreaterThan(0);
+  });
+
+  it("does not flag blocked tokens inside strings, identifiers, or comments", () => {
+    expect(() =>
+      validateSqlSafety(
+        "SELECT 'SLEEP(1)' AS label, `BENCHMARK(1,x)` FROM CUSTOMER -- LOAD_FILE('/x')",
+      ),
+    ).not.toThrow();
+  });
+
+  it("strips comments and quoted text before dangerous-pattern scans", () => {
+    const stripped = stripSqlCommentsAndLiterals(
+      "SELECT 'SLEEP(1)' AS label, `LOAD_FILE()` FROM CUSTOMER /* BENCHMARK() */",
+    );
+
+    expect(stripped).toContain("SELECT");
+    expect(stripped).toContain("FROM CUSTOMER");
+    expect(stripped).not.toContain("SLEEP");
+    expect(stripped).not.toContain("LOAD_FILE");
+    expect(stripped).not.toContain("BENCHMARK");
+  });
+});
+
+describe("query result limits", () => {
+  it("rejects result sets over the configured row cap", () => {
+    expect(() =>
+      enforceQueryResultLimits(
+        {
+          columns: ["id"],
+          rows: [{ id: 1 }, { id: 2 }],
+        },
+        { maxResultRows: 1, maxResponseBytes: 10_000 },
+      ),
+    ).toThrow(TRPCError);
+  });
+
+  it("rejects result sets over the configured response byte cap", () => {
+    expect(() =>
+      enforceQueryResultLimits(
+        {
+          columns: ["payload"],
+          rows: [{ payload: "x".repeat(50) }],
+        },
+        { maxResultRows: 10, maxResponseBytes: 20 },
+      ),
+    ).toThrow(TRPCError);
+  });
+
+  it("allows normal compact course-style result sets", () => {
+    const result = {
+      columns: ["customerId", "customerName"],
+      rows: [{ customerId: 1, customerName: "Amina" }],
+    };
+
+    expect(
+      enforceQueryResultLimits(result, {
+        maxResultRows: 10,
+        maxResponseBytes: 1_000,
+      }),
+    ).toBe(result);
   });
 });
 

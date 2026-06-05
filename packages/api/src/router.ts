@@ -117,6 +117,51 @@ const submitRateLimitMiddleware = createRateLimitMiddleware(2);
 const databaseName = dbConfig.database;
 const erDiagramPath = "/assets/telecomdz-er-schema-uses.svg";
 
+const readPositiveIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    return fallback;
+  }
+
+  return value;
+};
+
+export const sqlSafetyLimits = {
+  maxSqlLength: readPositiveIntegerEnv("SQL_MAX_LENGTH", 10_000),
+  executionTimeoutMs: readPositiveIntegerEnv("SQL_EXECUTION_TIMEOUT_MS", 3_000),
+  maxResultRows: readPositiveIntegerEnv("SQL_MAX_RESULT_ROWS", 500),
+  maxResponseBytes: readPositiveIntegerEnv("SQL_MAX_RESPONSE_BYTES", 1_000_000),
+};
+
+type SqlSafetyLimits = typeof sqlSafetyLimits;
+
+const blockedSqlPatterns = [
+  {
+    pattern: /\bSLEEP\s*\(/i,
+    message:
+      "SLEEP() is blocked because deliberate delays can exhaust the runner.",
+  },
+  {
+    pattern: /\bBENCHMARK\s*\(/i,
+    message:
+      "BENCHMARK() is blocked because deliberate CPU burn can exhaust the runner.",
+  },
+  {
+    pattern: /\bGET_LOCK\s*\(/i,
+    message:
+      "GET_LOCK() is blocked because user queries may not hold database locks.",
+  },
+  {
+    pattern: /\bLOAD_FILE\s*\(/i,
+    message: "LOAD_FILE() is blocked because file access is not allowed.",
+  },
+  {
+    pattern: /\bINTO\s+(OUTFILE|DUMPFILE)\b/i,
+    message: "Writing query output to server files is blocked.",
+  },
+];
+
 const blockedExactKeywords = new Set([
   "DROP",
   "TRUNCATE",
@@ -271,10 +316,115 @@ export function getSqlTokens(sql: string) {
     .map((token) => token.replace(/[^A-Za-z_]/g, "").toUpperCase());
 }
 
+export function stripSqlCommentsAndLiterals(sql: string) {
+  let stripped = "";
+  let quote: "'" | '"' | "`" | null = null;
+  let isLineComment = false;
+  let isBlockComment = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const nextChar = sql[index + 1];
+
+    if (isLineComment) {
+      if (char === "\n") {
+        stripped += "\n";
+        isLineComment = false;
+      } else {
+        stripped += " ";
+      }
+      continue;
+    }
+
+    if (isBlockComment) {
+      if (char === "*" && nextChar === "/") {
+        stripped += "  ";
+        index += 1;
+        isBlockComment = false;
+      } else {
+        stripped += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (!quote && char === "-" && nextChar === "-") {
+      stripped += "  ";
+      index += 1;
+      isLineComment = true;
+      continue;
+    }
+
+    if (!quote && char === "#") {
+      stripped += " ";
+      isLineComment = true;
+      continue;
+    }
+
+    if (!quote && char === "/" && nextChar === "*") {
+      stripped += "  ";
+      index += 1;
+      isBlockComment = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === "\\") {
+        stripped += " ";
+        if (nextChar) {
+          stripped += " ";
+          index += 1;
+        }
+        continue;
+      }
+
+      if (char === quote) {
+        quote = null;
+      }
+
+      stripped += " ";
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      stripped += " ";
+      continue;
+    }
+
+    stripped += char;
+  }
+
+  return stripped;
+}
+
+export function validateSqlSafety(
+  sql: string,
+  limits: Pick<SqlSafetyLimits, "maxSqlLength"> = sqlSafetyLimits,
+) {
+  if (sql.length > limits.maxSqlLength) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `SQL query is too long. Keep it under ${limits.maxSqlLength} characters.`,
+    });
+  }
+
+  const executableSql = stripSqlCommentsAndLiterals(sql);
+  for (const blockedPattern of blockedSqlPatterns) {
+    if (blockedPattern.pattern.test(executableSql)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: blockedPattern.message,
+      });
+    }
+  }
+}
+
 export function classifySql(
   sql: string,
   options: SqlExecutionOptions = {},
 ): SqlKind {
+  validateSqlSafety(sql);
+
   const allowAlter = options.allowAlter ?? false;
   const allowCreateTable = options.allowCreateTable ?? false;
   const allowDatabaseSetup = options.allowDatabaseSetup ?? false;
@@ -410,7 +560,60 @@ function mapQueryResult(
   };
 }
 
+export function enforceQueryResultLimits(
+  result: QueryResult,
+  limits: Pick<
+    SqlSafetyLimits,
+    "maxResultRows" | "maxResponseBytes"
+  > = sqlSafetyLimits,
+) {
+  if (result.rows.length > limits.maxResultRows) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Query returned too many rows. Narrow the query to at most ${limits.maxResultRows} rows.`,
+    });
+  }
+
+  const responseBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+  if (responseBytes > limits.maxResponseBytes) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Query result is too large. Narrow the selected columns or rows below ${limits.maxResponseBytes} bytes.`,
+    });
+  }
+
+  return result;
+}
+
+function mapAndLimitQueryResult(
+  rows: RowDataPacket[] | ResultSetHeader,
+  fields: FieldPacket[],
+) {
+  return enforceQueryResultLimits(mapQueryResult(rows, fields));
+}
+
+export function createUserQueryOptions(sql: string) {
+  return { sql, timeout: sqlSafetyLimits.executionTimeoutMs };
+}
+
+function isQueryTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const code = "code" in error ? String(error.code) : "";
+  return (
+    code === "PROTOCOL_SEQUENCE_TIMEOUT" ||
+    code === "ETIMEDOUT" ||
+    /timeout/i.test(error.message)
+  );
+}
+
 function getErrorMessage(error: unknown) {
+  if (isQueryTimeoutError(error)) {
+    return `SQL execution exceeded the ${sqlSafetyLimits.executionTimeoutMs} ms limit. Narrow the query before running it again.`;
+  }
+
   if (error instanceof Error) {
     return error.message;
   }
@@ -802,9 +1005,9 @@ async function runQuery(
       await connection.beginTransaction();
       const [rows, fields] = await connection.query<
         RowDataPacket[] | ResultSetHeader
-      >(sql);
+      >(createUserQueryOptions(sql));
       await connection.rollback();
-      return mapQueryResult(rows, fields);
+      return mapAndLimitQueryResult(rows, fields);
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -814,9 +1017,9 @@ async function runQuery(
   }
 
   const [rows, fields] = await pool.query<RowDataPacket[] | ResultSetHeader>(
-    sql,
+    createUserQueryOptions(sql),
   );
-  return mapQueryResult(rows, fields);
+  return mapAndLimitQueryResult(rows, fields);
 }
 
 async function runSqlStatements(
