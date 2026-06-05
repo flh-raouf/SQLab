@@ -4,6 +4,7 @@ import { keymap } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { forwardRef, useMemo } from "react";
 import { ShineBorder } from "@/components/ui/shine-border";
+import { useSqlSchema } from "@/hooks/use-sql-schema";
 import { useTheme } from "@/hooks/use-theme";
 import { modKey } from "@/lib/platform";
 
@@ -43,8 +44,11 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
     ref,
   ) {
     const { theme } = useTheme();
-    const shortcutExtensions = useMemo(
+    const sqlSchema = useSqlSchema();
+
+    const extensions = useMemo(
       () => [
+        sqlSchema ? sql({ schema: sqlSchema }) : sql(),
         Prec.highest(
           keymap.of([
             {
@@ -67,7 +71,7 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
           ]),
         ),
       ],
-      [hideRun, onRun, onSubmit],
+      [sqlSchema, hideRun, onRun, onSubmit],
     );
 
     return (
@@ -77,7 +81,7 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
             ref={ref}
             value={value}
             onChange={onChange}
-            extensions={[sql(), ...shortcutExtensions]}
+            extensions={extensions}
             theme={theme}
             height="240px"
             basicSetup={{

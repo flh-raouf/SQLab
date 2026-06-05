@@ -804,6 +804,28 @@ const schemaRouter = t.router({
     );
   }),
 
+  fullSchema: t.procedure.query(async () => {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (
+         SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+       )
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+      [databaseName, databaseName],
+    );
+
+    const schema: Record<string, string[]> = {};
+    for (const row of rows as RowDataPacket[]) {
+      const table = String(row.tableName);
+      const column = String(row.columnName);
+      if (!schema[table]) schema[table] = [];
+      schema[table].push(column);
+    }
+    return schema;
+  }),
+
   erDiagram: t.procedure.query(() => ({ path: erDiagramPath })),
 });
 
