@@ -429,6 +429,61 @@ describe("splitSqlStatements", () => {
       "# comment\nSELECT 2",
     ]);
   });
+
+  it("handles '' (double single-quote) as escaped literal", () => {
+    expect(splitSqlStatements("SELECT 'it''s a test' FROM t")).toEqual([
+      "SELECT 'it''s a test' FROM t",
+    ]);
+  });
+
+  it("handles '' with semicolons inside string", () => {
+    expect(
+      splitSqlStatements("SELECT 'value'';with;semicolons' FROM t"),
+    ).toEqual(["SELECT 'value'';with;semicolons' FROM t"]);
+  });
+
+  it("handles multiple '' escapes in one string", () => {
+    expect(splitSqlStatements("SELECT 'it''s a ''test''' FROM t")).toEqual([
+      "SELECT 'it''s a ''test''' FROM t",
+    ]);
+  });
+
+  it("handles '' followed by string close", () => {
+    expect(splitSqlStatements("SELECT '''' FROM t")).toEqual([
+      "SELECT '''' FROM t",
+    ]);
+  });
+
+  it("handles '' then semicolon outside string", () => {
+    expect(splitSqlStatements("SELECT ''''; SELECT 2")).toEqual([
+      "SELECT ''''",
+      "SELECT 2",
+    ]);
+  });
+
+  it('handles "" (double double-quote) as escaped literal', () => {
+    expect(splitSqlStatements('SELECT "it""s a test" FROM t')).toEqual([
+      'SELECT "it""s a test" FROM t',
+    ]);
+  });
+
+  it('handles "" with semicolons inside string', () => {
+    expect(
+      splitSqlStatements('SELECT "value"";with;semicolons" FROM t'),
+    ).toEqual(['SELECT "value"";with;semicolons" FROM t']);
+  });
+
+  it("handles `` (double backtick) as escaped literal", () => {
+    expect(splitSqlStatements("SELECT * FROM `foo``bar`")).toEqual([
+      "SELECT * FROM `foo``bar`",
+    ]);
+  });
+
+  it("handles mixed '' and normal strings", () => {
+    expect(splitSqlStatements("SELECT 'it''s' || 'another' FROM t")).toEqual([
+      "SELECT 'it''s' || 'another' FROM t",
+    ]);
+  });
 });
 
 describe("normalizeValue", () => {

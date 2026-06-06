@@ -733,6 +733,11 @@ export function splitSqlStatements(sql: string) {
         index += 1;
         continue;
       }
+      if (char === quote && nextChar === quote) {
+        current += nextChar;
+        index += 1;
+        continue;
+      }
       if (char === quote) {
         quote = null;
       }
