@@ -18,6 +18,80 @@ function getSolutionLabel(solutionIndex?: number) {
   return `Alternative solution ${solutionIndex - 1}`;
 }
 
+function formatSchemaValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "empty";
+  return String(value);
+}
+
+function describeSchemaField(key: string, expected: unknown, actual: unknown) {
+  if (key === "isNullable") {
+    return expected === "NO"
+      ? "should be NOT NULL"
+      : "should allow NULL values";
+  }
+
+  if (key === "extra") {
+    if (String(expected).includes("auto_increment")) {
+      return "should use AUTO_INCREMENT";
+    }
+    if (String(actual).includes("auto_increment")) {
+      return "should not use AUTO_INCREMENT";
+    }
+  }
+
+  if (key === "dataType" || key === "columnType") {
+    return `should be ${formatSchemaValue(expected)}, but got ${formatSchemaValue(actual)}`;
+  }
+
+  if (key === "columnDefault") {
+    return `should have default ${formatSchemaValue(expected)}, but got ${formatSchemaValue(actual)}`;
+  }
+
+  return `should have ${key} ${formatSchemaValue(expected)}, but got ${formatSchemaValue(actual)}`;
+}
+
+function formatSchemaDiffMessage(
+  verificationLabel: string | undefined,
+  diff?: ResultDiff["dataDiff"],
+) {
+  const expected = diff?.missingRows[0];
+  const actual = diff?.extraRows[0];
+
+  if (!expected || !actual) return null;
+
+  if (verificationLabel?.includes("columns must match")) {
+    return `Expected columns: ${formatSchemaValue(expected.columnNames)}. Got: ${formatSchemaValue(actual.columnNames)}.`;
+  }
+
+  if (!verificationLabel?.startsWith("Column '")) return null;
+
+  const columnName = formatSchemaValue(
+    expected.columnName ?? actual.columnName ?? "This column",
+  );
+  const differences = Object.keys(expected)
+    .filter((key) => key !== "columnName")
+    .filter(
+      (key) =>
+        formatSchemaValue(expected[key]) !== formatSchemaValue(actual[key]),
+    )
+    .filter((key, _index, keys) => {
+      if (key !== "columnType") return true;
+      return !keys.includes("dataType");
+    })
+    .map((key) => describeSchemaField(key, expected[key], actual[key]));
+
+  if (differences.length === 0) return null;
+
+  return `Column '${columnName}' ${differences.join(" and ")}.`;
+}
+
+function shouldShowSchemaExpectedGot(verificationLabel?: string) {
+  return (
+    verificationLabel?.includes("columns must match") ||
+    verificationLabel?.startsWith("Column '")
+  );
+}
+
 export function ValidationFeedback({
   passed,
   matchedSolutionIndex,
@@ -29,6 +103,10 @@ export function ValidationFeedback({
   error,
   onRetry,
 }: ValidationFeedbackProps) {
+  const schemaDiffMessage = shouldShowSchemaExpectedGot(verificationLabel)
+    ? formatSchemaDiffMessage(verificationLabel, diff?.dataDiff)
+    : null;
+
   if (passed) {
     const solutionLabel = getSolutionLabel(matchedSolutionIndex);
 
@@ -113,13 +191,19 @@ export function ValidationFeedback({
         <p className="mb-3 text-sm font-medium">{verificationLabel}</p>
       )}
 
-      {diff.sqlError && (
+      {schemaDiffMessage && (
+        <p className="mb-3 text-sm text-muted-foreground">
+          {schemaDiffMessage}
+        </p>
+      )}
+
+      {!verificationLabel && diff.sqlError && (
         <div className="mb-3 rounded bg-card p-3 font-mono text-sm text-red-400 whitespace-pre-wrap">
           {diff.sqlError}
         </div>
       )}
 
-      {diff.columnDiff && (
+      {!verificationLabel && diff.columnDiff && (
         <div className="mb-3">
           <p className="mb-1 text-sm font-medium">Column mismatch</p>
           <div className="flex gap-4 text-xs">
@@ -149,14 +233,14 @@ export function ValidationFeedback({
         </div>
       )}
 
-      {diff.rowCountDiff && (
+      {!verificationLabel && diff.rowCountDiff && (
         <p className="mb-3 text-sm">
           Row count mismatch: expected {diff.rowCountDiff.expected}, got{" "}
           {diff.rowCountDiff.actual}
         </p>
       )}
 
-      {diff.dataDiff && (
+      {!verificationLabel && diff.dataDiff && (
         <div>
           {diff.dataDiff.missingRows.length > 0 && (
             <div className="mb-2">

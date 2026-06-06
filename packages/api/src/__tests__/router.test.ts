@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getExercise } from "../exercises";
 import {
   appRouter,
@@ -8,6 +8,7 @@ import {
   createUserQueryOptions,
   enforceQueryResultLimits,
   generateValidationId,
+  getCachedDqlExpectedOutputs,
   getPublicQueryExecutionOptions,
   getSqlTokens,
   isAdminReseedAuthorized,
@@ -748,6 +749,144 @@ describe("DDL validation disposable-schema isolation", () => {
     expect(result.passed).toBe(true);
   });
 
+  it("rejects Part 1 table creation with wrong column names", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (test INT PRIMARY KEY, test2 INT, test3 INT, test4 INT);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("columns must match");
+  });
+
+  it("rejects Part 1 table creation with wrong data types", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (customerId VARCHAR(20) PRIMARY KEY, customerName INT, address INT, email INT);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("Column 'customerId'");
+  });
+
+  it("rejects Part 1 table creation with missing NOT NULL on required columns", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (customerId INT AUTO_INCREMENT PRIMARY KEY, customerName VARCHAR(150), address TEXT, email VARCHAR(150) UNIQUE);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("Column 'customerName'");
+  });
+
+  it("accepts wider VARCHAR lengths in Part 1 table creation", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (customerId INT AUTO_INCREMENT PRIMARY KEY, customerName VARCHAR(255) NOT NULL, address TEXT, email VARCHAR(255) UNIQUE);",
+    );
+
+    expect(result.passed).toBe(true);
+  });
+
+  it("rejects Part 1 table creation without expected unique constraints", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (customerId INT AUTO_INCREMENT PRIMARY KEY, customerName VARCHAR(150) NOT NULL, address TEXT, email VARCHAR(150));",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("unique constraints");
+  });
+
+  it("accepts Part 1 table creation without cascade rules on foreign keys", async () => {
+    const exercise = getExercise("1.2");
+    if (!exercise) throw new Error("Missing exercise 1.2");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE SUBSCRIBER (phoneNumber VARCHAR(20) PRIMARY KEY, customerId INT NOT NULL, balance DECIMAL(10,2) DEFAULT 0, operatorName VARCHAR(100), lineType VARCHAR(50), lineStatus VARCHAR(50), activationDate DATE, simCode VARCHAR(100), FOREIGN KEY (customerId) REFERENCES CUSTOMER(customerId));",
+    );
+
+    expect(result.passed).toBe(true);
+  });
+
+  it("rejects Part 1 table creation without expected check constraints", async () => {
+    const exercise = getExercise("1.3");
+    if (!exercise) throw new Error("Missing exercise 1.3");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE RECHARGE (rechargeId INT AUTO_INCREMENT PRIMARY KEY, phoneNumber VARCHAR(20) NOT NULL, amount DECIMAL(10,2) NOT NULL, rechargeDate DATE NOT NULL, paymentMethod VARCHAR(50), FOREIGN KEY (phoneNumber) REFERENCES SUBSCRIBER(phoneNumber) ON UPDATE CASCADE ON DELETE CASCADE);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("positive recharge amounts");
+  });
+
+  it("rejects reordered columns in Part 1 table creation", async () => {
+    const exercise = getExercise("1.1");
+    if (!exercise) throw new Error("Missing exercise 1.1");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE CUSTOMER (email VARCHAR(150) UNIQUE, address TEXT, customerName VARCHAR(150) NOT NULL, customerId INT AUTO_INCREMENT PRIMARY KEY);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.verificationLabel).toContain("columns must match");
+  });
+
+  it("rejects weak full creation scripts that only satisfy table and key counts", async () => {
+    const exercise = getExercise("1.9");
+    if (!exercise) throw new Error("Missing exercise 1.9");
+
+    const result = await validateDdlExercise(
+      exercise,
+      `CREATE DATABASE IF NOT EXISTS DZTelecom; USE DZTelecom;
+CREATE TABLE CUSTOMER (a INT PRIMARY KEY, b INT, c INT, d INT);
+CREATE TABLE SERVICE (a INT PRIMARY KEY, b INT);
+CREATE TABLE PLAN (a INT PRIMARY KEY, b INT, c INT);
+CREATE TABLE SUBSCRIBER (phoneNumber VARCHAR(20) PRIMARY KEY, customerId INT NOT NULL, balance INT, operatorName INT, lineType INT, lineStatus INT, activationDate INT, simCode INT, FOREIGN KEY (customerId) REFERENCES CUSTOMER(a));
+CREATE TABLE RECHARGE (rechargeId INT PRIMARY KEY, phoneNumber VARCHAR(20), amount INT, rechargeDate INT, paymentMethod INT, FOREIGN KEY (phoneNumber) REFERENCES SUBSCRIBER(phoneNumber));
+CREATE TABLE FEATURE (featureId INT PRIMARY KEY, planId INT, featureName INT, FOREIGN KEY (planId) REFERENCES PLAN(a));
+CREATE TABLE USES (phoneNumber VARCHAR(20) NOT NULL, serviceId INT NOT NULL, usageDateTime DATETIME NOT NULL, callDuration INT, dataBytes FLOAT, amount DECIMAL(10,2), PRIMARY KEY (phoneNumber, serviceId, usageDateTime), FOREIGN KEY (phoneNumber) REFERENCES SUBSCRIBER(phoneNumber), FOREIGN KEY (serviceId) REFERENCES SERVICE(a));
+CREATE TABLE SIGNUP (phoneNumber VARCHAR(20) NOT NULL, planId INT NOT NULL, startDate DATE NOT NULL, endDate DATE NOT NULL, amount DECIMAL(10,2), PRIMARY KEY (phoneNumber, planId, startDate), FOREIGN KEY (phoneNumber) REFERENCES SUBSCRIBER(phoneNumber), FOREIGN KEY (planId) REFERENCES PLAN(a));`,
+    );
+
+    expect(result.passed).toBe(false);
+  });
+
+  it("hides disposable schema names from missing table errors", async () => {
+    const exercise = getExercise("1.9");
+    if (!exercise) throw new Error("Missing exercise 1.9");
+
+    const result = await validateDdlExercise(
+      exercise,
+      "CREATE TABLE RECHARGE (rechargeId INT AUTO_INCREMENT PRIMARY KEY, phoneNumber VARCHAR(20) NOT NULL, amount DECIMAL(10,2) NOT NULL CHECK (amount > 0), rechargeDate DATE NOT NULL, paymentMethod VARCHAR(50), FOREIGN KEY (phoneNumber) REFERENCES SUBSCRIBER(phoneNumber) ON UPDATE CASCADE ON DELETE CASCADE);",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.diff?.sqlError).toBe(
+      "Table 'SUBSCRIBER' does not exist. Create it first, check the table name, or place your CREATE TABLE statements in dependency order.",
+    );
+    expect(result.diff?.sqlError).not.toContain("bdd_ddl_");
+  });
+
   it("does not mutate the canonical database after DDL validation", async () => {
     const caller = appRouter.createCaller({});
 
@@ -820,16 +959,51 @@ describe("DDL validation disposable-schema isolation", () => {
     expect(columns.some((c) => c.columnName === "simCode")).toBe(true);
     expect(columns.some((c) => c.columnKey.includes("UNI"))).toBe(false);
   });
+
+  it("returns immediate DDL validation results by default for local development", async () => {
+    const originalDdlValidationMode = process.env.DDL_VALIDATION_MODE;
+    delete process.env.DDL_VALIDATION_MODE;
+
+    try {
+      const caller = appRouter.createCaller({});
+      const result = await caller.validation.submit({
+        exerciseId: "1.1",
+        userSql:
+          "CREATE TABLE CUSTOMER (customerId INT AUTO_INCREMENT PRIMARY KEY, customerName VARCHAR(150) NOT NULL, address TEXT, email VARCHAR(150) UNIQUE);",
+      });
+
+      expect(result.passed).toBe(true);
+      expect("jobId" in result).toBe(false);
+    } finally {
+      if (originalDdlValidationMode === undefined) {
+        delete process.env.DDL_VALIDATION_MODE;
+      } else {
+        process.env.DDL_VALIDATION_MODE = originalDdlValidationMode;
+      }
+    }
+  });
 });
 
 describe("async DDL job queue", () => {
+  const originalDdlValidationMode = process.env.DDL_VALIDATION_MODE;
+
   beforeAll(async () => {
+    process.env.DDL_VALIDATION_MODE = "async";
     const { getRedis } = await import("../redis");
     const redis = getRedis();
     if (redis.status !== "ready") {
       await redis.connect();
     }
     await redis.flushdb();
+  });
+
+  afterAll(() => {
+    if (originalDdlValidationMode === undefined) {
+      delete process.env.DDL_VALIDATION_MODE;
+      return;
+    }
+
+    process.env.DDL_VALIDATION_MODE = originalDdlValidationMode;
   });
 
   it("enqueues DDL submissions and returns a jobId", async () => {
@@ -883,6 +1057,37 @@ describe("async DDL job queue", () => {
     expect(result.passed).toBe(true);
     expect(result.mode).toBe("dql");
     expect("jobId" in result).toBe(false);
+  });
+
+  it("rejects false-empty DQL bypasses when the seed has unused services", async () => {
+    const exercise = getExercise("2.1.4");
+    if (!exercise) throw new Error("Missing exercise 2.1.4");
+
+    const result = await validateDqlExercise(
+      exercise,
+      "SELECT serviceId, serviceName FROM SERVICE WHERE false",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.diff?.rowCountDiff).toEqual({ expected: 1, actual: 0 });
+  });
+
+  it("does not use stale cached expected outputs during DQL validation", async () => {
+    const exercise = getExercise("2.1.4");
+    if (!exercise) throw new Error("Missing exercise 2.1.4");
+
+    await getCachedDqlExpectedOutputs(exercise, async () => ({
+      columns: ["serviceId", "serviceName"],
+      rows: [],
+    }));
+
+    const result = await validateDqlExercise(
+      exercise,
+      "SELECT serviceId, serviceName FROM SERVICE WHERE false",
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.diff?.rowCountDiff).toEqual({ expected: 1, actual: 0 });
   });
 
   it("transitions job through pending -> running -> completed", async () => {

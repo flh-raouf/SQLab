@@ -106,6 +106,160 @@ describe("ValidationFeedback", () => {
     expect(screen.getByText(/expected 5, got 3/)).toBeInTheDocument();
   });
 
+  it("shows only the verification label for schema verification failures", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        verificationLabel="Table 'CUSTOMER' must have the expected unique constraints"
+        diff={{
+          rowCountDiff: { expected: 1, actual: 0 },
+          dataDiff: {
+            missingRows: [{ columns: "email" }],
+            extraRows: [],
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Table 'CUSTOMER' must have the expected unique constraints",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Row count mismatch/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/expected row/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Expected:/)).not.toBeInTheDocument();
+  });
+
+  it("shows a readable sentence for column name failures", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        verificationLabel="Table 'CUSTOMER' columns must match the expected names and order"
+        diff={{
+          dataDiff: {
+            missingRows: [
+              { columnNames: "customerId, customerName, address, email" },
+            ],
+            extraRows: [{ columnNames: "test, test2, test3, test4" }],
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Expected columns: customerId, customerName, address, email. Got: test, test2, test3, test4.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a readable sentence for column property failures", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        verificationLabel="Column 'customerName' in table 'CUSTOMER' must match the expected type, nullability, default, and auto-increment settings"
+        diff={{
+          dataDiff: {
+            missingRows: [
+              {
+                columnName: "customerName",
+                dataType: "varchar",
+                isNullable: "NO",
+              },
+            ],
+            extraRows: [
+              {
+                columnName: "customerName",
+                dataType: "varchar",
+                isNullable: "YES",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Column 'customerName' should be NOT NULL."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Expected:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Got:/)).not.toBeInTheDocument();
+  });
+
+  it("shows a readable sentence for missing auto-increment", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        verificationLabel="Column 'customerId' in table 'CUSTOMER' must match the expected type, nullability, default, and auto-increment settings"
+        diff={{
+          dataDiff: {
+            missingRows: [
+              {
+                columnName: "customerId",
+                dataType: "int",
+                isNullable: "NO",
+                extra: "auto_increment",
+              },
+            ],
+            extraRows: [
+              {
+                columnName: "customerId",
+                dataType: "int",
+                isNullable: "YES",
+                extra: "",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Column 'customerId' should be NOT NULL and should use AUTO_INCREMENT.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/dataType: int/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/extra: auto_increment/)).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate type mismatch messages", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        verificationLabel="Column 'customerName' in table 'CUSTOMER' must match the expected type, nullability, default, and auto-increment settings"
+        diff={{
+          dataDiff: {
+            missingRows: [
+              {
+                columnName: "customerName",
+                dataType: "varchar",
+                columnType: "varchar",
+              },
+            ],
+            extraRows: [
+              {
+                columnName: "customerName",
+                dataType: "text",
+                columnType: "text",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Column 'customerName' should be varchar, but got text.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/should be varchar/g).textContent).toBe(
+      "Column 'customerName' should be varchar, but got text.",
+    );
+  });
+
   it("shows missing rows count", () => {
     render(
       <ValidationFeedback

@@ -175,62 +175,608 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${tableName}'`,
   label: `Table '${tableName}' must exist`,
 });
 
-const columnCountVerification = (
-  tableName: string,
-  columnCount: number,
-): VerificationQuery => ({
-  sql: `SELECT COUNT(*) AS columnCount
+type ExpectedColumn = {
+  name: string;
+  ordinalPosition: number;
+  dataType: string;
+  columnType: string;
+  isNullable: "YES" | "NO";
+  columnDefault: string | null;
+  extra?: string;
+};
+
+type ExpectedForeignKey = {
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+};
+
+type ExpectedTableSchema = {
+  tableName: string;
+  columns: ExpectedColumn[];
+  primaryKey: string[];
+  uniqueKeys?: string[][];
+  foreignKeys?: ExpectedForeignKey[];
+  checks?: { label: string; expression: string }[];
+};
+
+const columnNameOrderVerification = ({
+  tableName,
+  columns,
+}: ExpectedTableSchema): VerificationQuery => ({
+  sql: `SELECT COALESCE(GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ', '), '') AS columnNames
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${tableName}'`,
   expectedOutput: {
-    columns: ["columnCount"],
-    rows: [{ columnCount }],
+    columns: ["columnNames"],
+    rows: [{ columnNames: columns.map((column) => column.name).join(", ") }],
   },
-  label: `Table '${tableName}' must have ${columnCount} column${columnCount !== 1 ? "s" : ""}`,
+  label: `Table '${tableName}' columns must match the expected names and order`,
 });
 
-const primaryKeyCountVerification = (
-  tableName: string,
-  primaryKeyColumns: number,
-): VerificationQuery => ({
-  sql: `SELECT COUNT(*) AS primaryKeyColumns
+const columnSchemaVerifications = ({
+  tableName,
+  columns,
+}: ExpectedTableSchema): VerificationQuery[] =>
+  columns.map((column) => ({
+    sql: `SELECT
+  COLUMN_NAME AS columnName,
+  DATA_TYPE AS dataType,
+  CASE WHEN DATA_TYPE = 'varchar' THEN DATA_TYPE ELSE COLUMN_TYPE END AS columnType,
+  IS_NULLABLE AS isNullable,
+  COLUMN_DEFAULT AS columnDefault,
+  EXTRA AS extra
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = '${tableName}'
+  AND COLUMN_NAME = '${column.name}'`,
+    expectedOutput: {
+      columns: [
+        "columnName",
+        "dataType",
+        "columnType",
+        "isNullable",
+        "columnDefault",
+        "extra",
+      ],
+      rows: [
+        {
+          columnName: column.name,
+          dataType: column.dataType,
+          columnType: column.columnType,
+          isNullable: column.isNullable,
+          columnDefault: column.columnDefault,
+          extra: column.extra ?? "",
+        },
+      ],
+    },
+    label: `Column '${column.name}' in table '${tableName}' must match the expected type, nullability, default, and auto-increment settings`,
+  }));
+
+const primaryKeySchemaVerification = ({
+  tableName,
+  primaryKey,
+}: ExpectedTableSchema): VerificationQuery => ({
+  sql: `SELECT COLUMN_NAME AS columnName, ORDINAL_POSITION AS ordinalPosition
 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME = '${tableName}'
   AND CONSTRAINT_NAME = 'PRIMARY'`,
   expectedOutput: {
-    columns: ["primaryKeyColumns"],
-    rows: [{ primaryKeyColumns }],
+    columns: ["columnName", "ordinalPosition"],
+    rows: primaryKey.map((columnName, index) => ({
+      columnName,
+      ordinalPosition: index + 1,
+    })),
   },
-  label: `Table '${tableName}' must have ${primaryKeyColumns} primary key column${primaryKeyColumns !== 1 ? "s" : ""}`,
+  label: `Table '${tableName}' must have the expected primary key columns`,
 });
 
-const foreignKeyCountVerification = (
+const uniqueKeySchemaVerification = (
   tableName: string,
-  foreignKeyColumns: number,
+  uniqueKeys: string[][],
 ): VerificationQuery => ({
-  sql: `SELECT COUNT(*) AS foreignKeyColumns
-FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME = '${tableName}'
-  AND REFERENCED_TABLE_NAME IS NOT NULL`,
+  sql: `SELECT GROUP_CONCAT(kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ',') AS columns
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+  ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+ AND kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+ AND kcu.TABLE_NAME = tc.TABLE_NAME
+WHERE tc.TABLE_SCHEMA = DATABASE()
+  AND tc.TABLE_NAME = '${tableName}'
+  AND tc.CONSTRAINT_TYPE = 'UNIQUE'
+GROUP BY tc.CONSTRAINT_NAME`,
   expectedOutput: {
-    columns: ["foreignKeyColumns"],
-    rows: [{ foreignKeyColumns }],
+    columns: ["columns"],
+    rows: uniqueKeys.map((columns) => ({ columns: columns.join(",") })),
   },
-  label: `Table '${tableName}' must have ${foreignKeyColumns} foreign key column${foreignKeyColumns !== 1 ? "s" : ""}`,
+  label: `Table '${tableName}' must have the expected unique constraints`,
 });
 
-const tableVerifications = (
+const foreignKeySchemaVerification = (
   tableName: string,
-  columnCount: number,
-  primaryKeyColumns: number,
-  foreignKeyColumns = 0,
-) => [
-  tableExistsVerification(tableName),
-  columnCountVerification(tableName, columnCount),
-  primaryKeyCountVerification(tableName, primaryKeyColumns),
-  foreignKeyCountVerification(tableName, foreignKeyColumns),
+  foreignKeys: ExpectedForeignKey[],
+): VerificationQuery => ({
+  sql: `SELECT
+  GROUP_CONCAT(kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION SEPARATOR ',') AS columns,
+  kcu.REFERENCED_TABLE_NAME AS referencedTable,
+  GROUP_CONCAT(kcu.REFERENCED_COLUMN_NAME ORDER BY kcu.POSITION_IN_UNIQUE_CONSTRAINT SEPARATOR ',') AS referencedColumns
+FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+WHERE kcu.TABLE_SCHEMA = DATABASE()
+  AND kcu.TABLE_NAME = '${tableName}'
+  AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+GROUP BY
+  kcu.CONSTRAINT_NAME,
+  kcu.REFERENCED_TABLE_NAME`,
+  expectedOutput: {
+    columns: ["columns", "referencedTable", "referencedColumns"],
+    rows: foreignKeys.map((foreignKey) => ({
+      columns: foreignKey.columns.join(","),
+      referencedTable: foreignKey.referencedTable,
+      referencedColumns: foreignKey.referencedColumns.join(","),
+    })),
+  },
+  label: `Table '${tableName}' must have the expected foreign keys`,
+});
+
+const checkConstraintVerification = (
+  tableName: string,
+  check: { label: string; expression: string },
+): VerificationQuery => ({
+  sql: `SELECT COUNT(*) AS checkCount
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+JOIN INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
+  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+ AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+WHERE tc.TABLE_SCHEMA = DATABASE()
+  AND tc.TABLE_NAME = '${tableName}'
+  AND tc.CONSTRAINT_TYPE = 'CHECK'
+  AND REPLACE(REPLACE(REPLACE(REPLACE(cc.CHECK_CLAUSE, '\`', ''), ' ', ''), '(', ''), ')', '') LIKE '%${check.expression}%'`,
+  expectedOutput: {
+    columns: ["checkCount"],
+    rows: [{ checkCount: 1 }],
+  },
+  label: check.label,
+});
+
+const tableSchemaVerifications = (expected: ExpectedTableSchema) => [
+  tableExistsVerification(expected.tableName),
+  columnNameOrderVerification(expected),
+  ...columnSchemaVerifications(expected),
+  primaryKeySchemaVerification(expected),
+  ...(expected.uniqueKeys
+    ? [uniqueKeySchemaVerification(expected.tableName, expected.uniqueKeys)]
+    : []),
+  ...(expected.foreignKeys
+    ? [foreignKeySchemaVerification(expected.tableName, expected.foreignKeys)]
+    : []),
+  ...(expected.checks ?? []).map((check) =>
+    checkConstraintVerification(expected.tableName, check),
+  ),
+];
+
+const customerTableSchema: ExpectedTableSchema = {
+  tableName: "CUSTOMER",
+  columns: [
+    {
+      name: "customerId",
+      ordinalPosition: 1,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+      extra: "auto_increment",
+    },
+    {
+      name: "customerName",
+      ordinalPosition: 2,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "address",
+      ordinalPosition: 3,
+      dataType: "text",
+      columnType: "text",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+    {
+      name: "email",
+      ordinalPosition: 4,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["customerId"],
+  uniqueKeys: [["email"]],
+};
+
+const subscriberTableSchema: ExpectedTableSchema = {
+  tableName: "SUBSCRIBER",
+  columns: [
+    {
+      name: "phoneNumber",
+      ordinalPosition: 1,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "customerId",
+      ordinalPosition: 2,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "balance",
+      ordinalPosition: 3,
+      dataType: "decimal",
+      columnType: "decimal(10,2)",
+      isNullable: "YES",
+      columnDefault: "0.00",
+    },
+    {
+      name: "operatorName",
+      ordinalPosition: 4,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+    {
+      name: "lineType",
+      ordinalPosition: 5,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+    {
+      name: "lineStatus",
+      ordinalPosition: 6,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+    {
+      name: "activationDate",
+      ordinalPosition: 7,
+      dataType: "date",
+      columnType: "date",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+    {
+      name: "simCode",
+      ordinalPosition: 8,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["phoneNumber"],
+  foreignKeys: [
+    {
+      columns: ["customerId"],
+      referencedTable: "CUSTOMER",
+      referencedColumns: ["customerId"],
+    },
+  ],
+};
+
+const rechargeTableSchema: ExpectedTableSchema = {
+  tableName: "RECHARGE",
+  columns: [
+    {
+      name: "rechargeId",
+      ordinalPosition: 1,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+      extra: "auto_increment",
+    },
+    {
+      name: "phoneNumber",
+      ordinalPosition: 2,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "amount",
+      ordinalPosition: 3,
+      dataType: "decimal",
+      columnType: "decimal(10,2)",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "rechargeDate",
+      ordinalPosition: 4,
+      dataType: "date",
+      columnType: "date",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "paymentMethod",
+      ordinalPosition: 5,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "YES",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["rechargeId"],
+  foreignKeys: [
+    {
+      columns: ["phoneNumber"],
+      referencedTable: "SUBSCRIBER",
+      referencedColumns: ["phoneNumber"],
+    },
+  ],
+  checks: [
+    {
+      label: "Table 'RECHARGE' must enforce positive recharge amounts",
+      expression: "amount>0",
+    },
+  ],
+};
+
+const serviceTableSchema: ExpectedTableSchema = {
+  tableName: "SERVICE",
+  columns: [
+    {
+      name: "serviceId",
+      ordinalPosition: 1,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+      extra: "auto_increment",
+    },
+    {
+      name: "serviceName",
+      ordinalPosition: 2,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["serviceId"],
+};
+
+const usesTableSchema: ExpectedTableSchema = {
+  tableName: "USES",
+  columns: [
+    {
+      name: "phoneNumber",
+      ordinalPosition: 1,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "serviceId",
+      ordinalPosition: 2,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "usageDateTime",
+      ordinalPosition: 3,
+      dataType: "datetime",
+      columnType: "datetime",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "callDuration",
+      ordinalPosition: 4,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "YES",
+      columnDefault: "0",
+    },
+    {
+      name: "dataBytes",
+      ordinalPosition: 5,
+      dataType: "float",
+      columnType: "float",
+      isNullable: "YES",
+      columnDefault: "0",
+    },
+    {
+      name: "amount",
+      ordinalPosition: 6,
+      dataType: "decimal",
+      columnType: "decimal(10,2)",
+      isNullable: "YES",
+      columnDefault: "0.00",
+    },
+  ],
+  primaryKey: ["phoneNumber", "serviceId", "usageDateTime"],
+  foreignKeys: [
+    {
+      columns: ["phoneNumber"],
+      referencedTable: "SUBSCRIBER",
+      referencedColumns: ["phoneNumber"],
+    },
+    {
+      columns: ["serviceId"],
+      referencedTable: "SERVICE",
+      referencedColumns: ["serviceId"],
+    },
+  ],
+};
+
+const planTableSchema: ExpectedTableSchema = {
+  tableName: "PLAN",
+  columns: [
+    {
+      name: "planId",
+      ordinalPosition: 1,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+      extra: "auto_increment",
+    },
+    {
+      name: "planName",
+      ordinalPosition: 2,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "monthlyRate",
+      ordinalPosition: 3,
+      dataType: "decimal",
+      columnType: "decimal(10,2)",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["planId"],
+  checks: [
+    {
+      label: "Table 'PLAN' must enforce non-negative monthly rates",
+      expression: "monthlyRate>=0",
+    },
+  ],
+};
+
+const featureTableSchema: ExpectedTableSchema = {
+  tableName: "FEATURE",
+  columns: [
+    {
+      name: "featureId",
+      ordinalPosition: 1,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+      extra: "auto_increment",
+    },
+    {
+      name: "planId",
+      ordinalPosition: 2,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "featureName",
+      ordinalPosition: 3,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+  ],
+  primaryKey: ["featureId"],
+  foreignKeys: [
+    {
+      columns: ["planId"],
+      referencedTable: "PLAN",
+      referencedColumns: ["planId"],
+    },
+  ],
+};
+
+const signupTableSchema: ExpectedTableSchema = {
+  tableName: "SIGNUP",
+  columns: [
+    {
+      name: "phoneNumber",
+      ordinalPosition: 1,
+      dataType: "varchar",
+      columnType: "varchar",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "planId",
+      ordinalPosition: 2,
+      dataType: "int",
+      columnType: "int",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "startDate",
+      ordinalPosition: 3,
+      dataType: "date",
+      columnType: "date",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "endDate",
+      ordinalPosition: 4,
+      dataType: "date",
+      columnType: "date",
+      isNullable: "NO",
+      columnDefault: null,
+    },
+    {
+      name: "amount",
+      ordinalPosition: 5,
+      dataType: "decimal",
+      columnType: "decimal(10,2)",
+      isNullable: "YES",
+      columnDefault: "0.00",
+    },
+  ],
+  primaryKey: ["phoneNumber", "planId", "startDate"],
+  foreignKeys: [
+    {
+      columns: ["phoneNumber"],
+      referencedTable: "SUBSCRIBER",
+      referencedColumns: ["phoneNumber"],
+    },
+    {
+      columns: ["planId"],
+      referencedTable: "PLAN",
+      referencedColumns: ["planId"],
+    },
+  ],
+  checks: [
+    {
+      label: "Table 'SIGNUP' must enforce startDate before endDate",
+      expression: "startDate<endDate",
+    },
+  ],
+};
+
+const exerciseOneTableSchemas = [
+  customerTableSchema,
+  subscriberTableSchema,
+  rechargeTableSchema,
+  serviceTableSchema,
+  usesTableSchema,
+  planTableSchema,
+  featureTableSchema,
+  signupTableSchema,
 ];
 
 export const exercises = [
@@ -248,7 +794,7 @@ export const exercises = [
       "Make customerName required, and add a UNIQUE constraint on email so two customers cannot share the same address.",
     ],
     solutionQueries: [customerTableSql],
-    verificationQueries: tableVerifications("CUSTOMER", 4, 1),
+    verificationQueries: tableSchemaVerifications(customerTableSchema),
     initialCode: "CREATE TABLE CUSTOMER (\n  \n);",
   },
   {
@@ -265,7 +811,7 @@ export const exercises = [
       "Keep customerId NOT NULL and add the foreign key with cascading update/delete behavior.",
     ],
     solutionQueries: [subscriberTableSql],
-    verificationQueries: tableVerifications("SUBSCRIBER", 8, 1, 1),
+    verificationQueries: tableSchemaVerifications(subscriberTableSchema),
     initialCode: "CREATE TABLE SUBSCRIBER (\n  \n);",
   },
   {
@@ -282,7 +828,7 @@ export const exercises = [
       "Add a CHECK constraint on amount so zero or negative recharges are rejected.",
     ],
     solutionQueries: [rechargeTableSql],
-    verificationQueries: tableVerifications("RECHARGE", 5, 1, 1),
+    verificationQueries: tableSchemaVerifications(rechargeTableSchema),
     initialCode: "CREATE TABLE RECHARGE (\n  \n);",
   },
   {
@@ -299,7 +845,7 @@ export const exercises = [
       "serviceName should be NOT NULL because every usage row will point to a named service.",
     ],
     solutionQueries: [serviceTableSql],
-    verificationQueries: tableVerifications("SERVICE", 2, 1),
+    verificationQueries: tableSchemaVerifications(serviceTableSchema),
     initialCode: "CREATE TABLE SERVICE (\n  \n);",
   },
   {
@@ -316,7 +862,7 @@ export const exercises = [
       "The table is named USES so students can write it normally without backticks.",
     ],
     solutionQueries: [usesTableSql],
-    verificationQueries: tableVerifications("USES", 6, 3, 2),
+    verificationQueries: tableSchemaVerifications(usesTableSchema),
     initialCode: "CREATE TABLE USES (\n  \n);",
   },
   {
@@ -333,7 +879,7 @@ export const exercises = [
       "monthlyRate is a price-like value, so add a constraint that prevents negative rates.",
     ],
     solutionQueries: [planTableSql],
-    verificationQueries: tableVerifications("PLAN", 3, 1),
+    verificationQueries: tableSchemaVerifications(planTableSchema),
     initialCode: "CREATE TABLE PLAN (\n  \n);",
   },
   {
@@ -349,7 +895,7 @@ export const exercises = [
       "Add a foreign key from FEATURE(planId) to PLAN(planId), and make featureName required.",
     ],
     solutionQueries: [featureTableSql],
-    verificationQueries: tableVerifications("FEATURE", 3, 1, 1),
+    verificationQueries: tableSchemaVerifications(featureTableSchema),
     initialCode: "CREATE TABLE FEATURE (\n  \n);",
   },
   {
@@ -366,7 +912,7 @@ export const exercises = [
       "Reference both SUBSCRIBER and PLAN, and add a date constraint so startDate comes before endDate.",
     ],
     solutionQueries: [signupTableSql],
-    verificationQueries: tableVerifications("SIGNUP", 5, 3, 2),
+    verificationQueries: tableSchemaVerifications(signupTableSchema),
     initialCode: "CREATE TABLE SIGNUP (\n  \n);",
   },
   {
@@ -385,18 +931,22 @@ export const exercises = [
     solutionQueries: [fullCreationScript],
     verificationQueries: [
       {
-        sql: `SELECT COUNT(*) AS tableCount
+        sql: `SELECT GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME SEPARATOR ',') AS tableNames
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
-  AND TABLE_NAME IN ('CUSTOMER', 'SUBSCRIBER', 'RECHARGE', 'SERVICE', 'USES', 'PLAN', 'FEATURE', 'SIGNUP')`,
+  AND TABLE_TYPE = 'BASE TABLE'`,
         expectedOutput: {
-          columns: ["tableCount"],
-          rows: [{ tableCount: 8 }],
+          columns: ["tableNames"],
+          rows: [
+            {
+              tableNames:
+                "CUSTOMER,FEATURE,PLAN,RECHARGE,SERVICE,SIGNUP,SUBSCRIBER,USES",
+            },
+          ],
         },
-        label: "All 8 tables must exist",
+        label: "The script must create exactly the 8 expected tables",
       },
-      ...tableVerifications("SIGNUP", 5, 3, 2),
-      ...tableVerifications("USES", 6, 3, 2),
+      ...exerciseOneTableSchemas.flatMap(tableSchemaVerifications),
     ],
     initialCode: "CREATE DATABASE IF NOT EXISTS DZTelecom;\nUSE DZTelecom;\n\n",
   },

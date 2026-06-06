@@ -203,7 +203,8 @@ INSERT INTO SERVICE (serviceName) VALUES
 ('SMS'),
 ('Internet 4G'),
 ('Appel International'),
-('Roaming');
+('Roaming'),
+('MMS');
 
 -- =====================================================
 -- INSERTION DES USES

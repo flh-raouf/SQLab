@@ -51,7 +51,8 @@
 
 4. **Redis unavailable**:
    - Rate limiting falls back to in-memory (single-instance safe).
-   - DDL job queue stops — jobs cannot be enqueued or processed.
+   - DDL job queue stops — jobs cannot be enqueued or processed when `DDL_VALIDATION_MODE=async`.
+   - Local development defaults to inline DDL validation, so `bun run dev` does not require a worker for submissions to complete.
    - Restart Redis and verify `GET /health` shows `redis: ok`.
 
 ### Load-Test Pass/Fail Targets
@@ -73,6 +74,7 @@ Run: `bun load-test.ts`
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `DDL_VALIDATION_MODE` | `inline` | Use `inline` for local immediate DDL validation, or `async` to enqueue DDL jobs for the worker |
 | `DDL_JOB_CONCURRENCY` | `2` | Max parallel DDL jobs per worker |
 | `SQL_MAX_LENGTH` | `10000` | Max SQL query length |
 | `SQL_EXECUTION_TIMEOUT_MS` | `3000` | SQL query timeout |

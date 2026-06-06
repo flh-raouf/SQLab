@@ -121,6 +121,10 @@ const adminReseedToken = process.env.DB_RESEED_TOKEN;
 const reseedRestrictedMessage =
   "Database reset is restricted to admin maintenance. For local development, use bun run db:seed from the project root.";
 
+function shouldQueueDdlValidation() {
+  return process.env.DDL_VALIDATION_MODE === "async";
+}
+
 const readPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
 
@@ -1373,8 +1377,33 @@ const exercisesRouter = t.router({
   }),
 });
 
+function formatSqlErrorMessage(error: unknown) {
+  const message = getErrorMessage(error).replace(
+    /bdd_ddl_[A-Za-z0-9_]+\./g,
+    "",
+  );
+
+  const missingTableMatch = message.match(/Table '([^']+)' doesn't exist/i);
+  if (missingTableMatch) {
+    const tableName = missingTableMatch[1]?.split(".").pop() ?? "the table";
+    return `Table '${tableName}' does not exist. Create it first, check the table name, or place your CREATE TABLE statements in dependency order.`;
+  }
+
+  const missingReferencedTableMatch = message.match(
+    /Failed to open the referenced table '([^']+)'/i,
+  );
+  if (missingReferencedTableMatch) {
+    const tableName =
+      missingReferencedTableMatch[1]?.split(".").pop() ??
+      "the referenced table";
+    return `Table '${tableName}' does not exist. Create it first, check the table name, or place your CREATE TABLE statements in dependency order.`;
+  }
+
+  return message;
+}
+
 function sqlErrorDiff(error: unknown): ResultDiff {
-  return { sqlError: getErrorMessage(error) };
+  return { sqlError: formatSqlErrorMessage(error) };
 }
 
 export async function validateDqlExercise(
@@ -1399,7 +1428,9 @@ export async function validateDqlExercise(
   let expectedResults: QueryResult[];
 
   try {
-    expectedResults = await getCachedDqlExpectedOutputs(exercise);
+    expectedResults = await generateDqlExpectedOutputs(exercise, (sql) =>
+      runQuery(sql, { rollbackDml: true }),
+    );
   } catch (error) {
     return {
       passed: false,
@@ -1462,6 +1493,19 @@ const validationRouter = t.router({
       }
 
       if (exercise.type === "ddl") {
+        if (!shouldQueueDdlValidation()) {
+          const result = await validateDdlExercise(exercise, input.userSql);
+          recordHistogram(
+            "bdd.validation.duration",
+            performance.now() - start,
+            {
+              mode: "ddl",
+              passed: String(result.passed),
+            },
+          );
+          return result;
+        }
+
         const { jobId } = await enqueueDdlJob(input.exerciseId, input.userSql);
         recordHistogram("bdd.validation.duration", performance.now() - start, {
           mode: "ddl",
