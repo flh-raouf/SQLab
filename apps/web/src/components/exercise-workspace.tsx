@@ -42,6 +42,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
     isError,
     isLoading,
   } = trpc.exercises.get.useQuery(exerciseId);
+  const { data: exerciseSummaries } = trpc.exercises.list.useQuery();
   const {
     completed,
     markComplete,
@@ -85,6 +86,15 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
   const isDdlPending = ddlStatus === "pending" || ddlStatus === "running";
   const isSubmitted =
     validationResult?.passed ?? completed.includes(exerciseId);
+  const totalExerciseCount = exerciseSummaries?.length ?? 0;
+
+  const willCompleteAllProgress = () => {
+    if (totalExerciseCount === 0 || completed.includes(exerciseId)) {
+      return false;
+    }
+
+    return completed.length + 1 >= totalExerciseCount;
+  };
 
   useEffect(() => {
     if (!ddlJob) return;
@@ -102,8 +112,9 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
           : hintedExerciseIds.includes(exerciseId)
             ? "hinted"
             : "success";
+        const shouldShowCompletion = willCompleteAllProgress();
         markComplete(exerciseId, st);
-        if (exercise?.nextExerciseId === null) {
+        if (shouldShowCompletion) {
           setShowCompletionModal(true);
           fireCannonConfetti();
         } else {
@@ -120,7 +131,8 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
   }, [
     ddlJob,
     exerciseId,
-    exercise?.nextExerciseId,
+    completed,
+    totalExerciseCount,
     revealedExerciseIds,
     hintedExerciseIds,
     markComplete,
@@ -156,8 +168,9 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
           : hintedExerciseIds.includes(exerciseId)
             ? "hinted"
             : "success";
+        const shouldShowCompletion = willCompleteAllProgress();
         markComplete(exerciseId, status);
-        if (exercise?.nextExerciseId === null) {
+        if (shouldShowCompletion) {
           setShowCompletionModal(true);
           fireCannonConfetti();
         } else {
@@ -468,7 +481,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
               Congratulations!
             </h2>
             <p className="mb-2 text-muted-foreground">
-              You&apos;ve completed all {exercise?.order ?? ""} exercises!
+              You&apos;ve completed all {totalExerciseCount} exercises!
             </p>
             <p className="mb-6 text-sm text-muted-foreground">
               If this helped you, please consider starring the repository on
