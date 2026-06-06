@@ -1364,10 +1364,10 @@ WHERE TABLE_SCHEMA = DATABASE()
 FROM USES`,
         expectedOutput: {
           columns: ["callRows", "nonCallRows"],
-          rows: [{ callRows: 5, nonCallRows: 20 }],
+          rows: [{ callRows: 5, nonCallRows: 21 }],
         },
         label:
-          "isCall values must match expected (5 call rows, 20 non-call rows)",
+          "isCall values must match expected (5 call rows, 21 non-call rows)",
       },
     ],
     allowAlter: true,

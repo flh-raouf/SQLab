@@ -1,4 +1,4 @@
-import { sql } from "@codemirror/lang-sql";
+import { MySQL, SQLDialect, sql } from "@codemirror/lang-sql";
 import { Prec } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
@@ -7,6 +7,11 @@ import { ShineBorder } from "@/components/ui/shine-border";
 import { useSqlSchema } from "@/hooks/use-sql-schema";
 import { useTheme } from "@/hooks/use-theme";
 import { modKey } from "@/lib/platform";
+
+const appSqlDialect = SQLDialect.define({
+  ...MySQL.spec,
+  caseInsensitiveIdentifiers: true,
+});
 
 function Key({ children }: { children: string }) {
   return (
@@ -48,7 +53,10 @@ export const SqlEditor = forwardRef<ReactCodeMirrorRef, SqlEditorProps>(
 
     const extensions = useMemo(
       () => [
-        sqlSchema ? sql({ schema: sqlSchema }) : sql(),
+        sql({
+          dialect: appSqlDialect,
+          schema: sqlSchema,
+        }),
         Prec.highest(
           keymap.of([
             {

@@ -1051,13 +1051,13 @@ describe("async DDL job queue", () => {
     expect("jobId" in result).toBe(false);
   });
 
-  it("rejects false-empty DQL bypasses when the seed has unused services", async () => {
-    const exercise = getExercise("2.1.4");
-    if (!exercise) throw new Error("Missing exercise 2.1.4");
+  it("rejects false-empty DQL bypasses for subscribers who used every service", async () => {
+    const exercise = getExercise("2.3.1");
+    if (!exercise) throw new Error("Missing exercise 2.3.1");
 
     const result = await validateDqlExercise(
       exercise,
-      "SELECT serviceId, serviceName FROM SERVICE WHERE false",
+      "SELECT 'phoneNumber' AS phoneNumber, 'customerName' AS customerName WHERE false",
     );
 
     expect(result.passed).toBe(false);
@@ -1065,17 +1065,17 @@ describe("async DDL job queue", () => {
   });
 
   it("does not use stale cached expected outputs during DQL validation", async () => {
-    const exercise = getExercise("2.1.4");
-    if (!exercise) throw new Error("Missing exercise 2.1.4");
+    const exercise = getExercise("2.3.1");
+    if (!exercise) throw new Error("Missing exercise 2.3.1");
 
     await getCachedDqlExpectedOutputs(exercise, async () => ({
-      columns: ["serviceId", "serviceName"],
+      columns: ["phoneNumber", "customerName"],
       rows: [],
     }));
 
     const result = await validateDqlExercise(
       exercise,
-      "SELECT serviceId, serviceName FROM SERVICE WHERE false",
+      "SELECT 'phoneNumber' AS phoneNumber, 'customerName' AS customerName WHERE false",
     );
 
     expect(result.passed).toBe(false);
