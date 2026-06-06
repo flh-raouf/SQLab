@@ -52,7 +52,7 @@ export function SandboxPage() {
   const handleRun = () => {
     setRunError(null);
     setResetError(null);
-    runMutation.mutate({ sql, allowAlter: false });
+    runMutation.mutate({ sql });
   };
 
   return (

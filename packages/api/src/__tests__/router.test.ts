@@ -326,7 +326,6 @@ describe("public query execution policy", () => {
     await expect(
       caller.query.execute({
         sql: "ALTER TABLE CUSTOMER ADD COLUMN publicMutation INT",
-        allowAlter: true,
       }),
     ).rejects.toThrow("ALTER TABLE statements are only allowed");
   });

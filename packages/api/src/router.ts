@@ -1335,7 +1335,6 @@ const queryRouter = t.router({
     .input(
       z.object({
         sql: z.string().min(1),
-        allowAlter: z.boolean().optional().default(false),
       }),
     )
     .mutation(async ({ input }) => runQueryForUser(input.sql)),

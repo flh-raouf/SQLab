@@ -203,10 +203,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
   const handleRun = () => {
     setValidationResult(null);
     setRunError(null);
-    runMutation.mutate({
-      sql,
-      allowAlter: (exercise as { allowAlter?: boolean }).allowAlter ?? false,
-    });
+    runMutation.mutate({ sql });
   };
 
   const handleSqlChange = (value: string) => {
