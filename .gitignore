@@ -8,3 +8,4 @@ packages/db/drizzle.config.js
 playwright-report/
 DEPLOYMENT.md
 REDEPLOY.md
+scripts/

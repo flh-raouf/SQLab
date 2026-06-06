@@ -92,6 +92,80 @@ function shouldShowSchemaExpectedGot(verificationLabel?: string) {
   );
 }
 
+function formatCellValue(value: unknown) {
+  if (value === null) return "NULL";
+  if (value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function getRowTableColumns(rows: Record<string, unknown>[]) {
+  const columns = new Set<string>();
+  for (const row of rows) {
+    for (const column of Object.keys(row)) {
+      columns.add(column);
+    }
+  }
+  return [...columns];
+}
+
+function RowDiffTable({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: Record<string, unknown>[];
+}) {
+  const visibleRows = rows.slice(0, 5);
+  const columns = getRowTableColumns(visibleRows);
+
+  if (visibleRows.length === 0 || columns.length === 0) return null;
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-md border border-border bg-card">
+      <div className="border-border border-b px-3 py-2 text-xs font-semibold text-muted-foreground">
+        {label}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left font-mono text-xs">
+          <thead className="bg-sidebar text-muted-foreground">
+            <tr>
+              {columns.map((column) => (
+                <th
+                  key={column}
+                  scope="col"
+                  className="whitespace-nowrap border-border border-b px-3 py-2 font-medium"
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, rowIndex) => (
+              <tr
+                key={`${label}-${rowIndex}`}
+                className="border-border border-b last:border-b-0"
+              >
+                {columns.map((column) => (
+                  <td key={column} className="whitespace-nowrap px-3 py-2">
+                    {formatCellValue(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > visibleRows.length && (
+        <div className="border-border border-t px-3 py-2 text-xs text-muted-foreground">
+          Showing first {visibleRows.length} rows of {rows.length}.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ValidationFeedback({
   passed,
   matchedSolutionIndex,
@@ -248,14 +322,10 @@ export function ValidationFeedback({
                 {diff.dataDiff.missingRows.length} expected row
                 {diff.dataDiff.missingRows.length !== 1 ? "s" : ""} missing
               </p>
-              {diff.dataDiff.missingRows.slice(0, 5).map((row, index) => (
-                <pre
-                  key={`missing-${index}`}
-                  className="mt-1 rounded bg-card px-2 py-1 font-mono text-xs text-muted-foreground"
-                >
-                  {JSON.stringify(row, null, 2)}
-                </pre>
-              ))}
+              <RowDiffTable
+                label="Expected rows"
+                rows={diff.dataDiff.missingRows}
+              />
             </div>
           )}
           {diff.dataDiff.extraRows.length > 0 && (
@@ -264,14 +334,7 @@ export function ValidationFeedback({
                 {diff.dataDiff.extraRows.length} unexpected row
                 {diff.dataDiff.extraRows.length !== 1 ? "s" : ""} returned
               </p>
-              {diff.dataDiff.extraRows.slice(0, 5).map((row, index) => (
-                <pre
-                  key={`extra-${index}`}
-                  className="mt-1 rounded bg-card px-2 py-1 font-mono text-xs text-muted-foreground"
-                >
-                  {JSON.stringify(row, null, 2)}
-                </pre>
-              ))}
+              <RowDiffTable label="Got rows" rows={diff.dataDiff.extraRows} />
             </div>
           )}
         </div>

@@ -273,6 +273,12 @@ describe("ValidationFeedback", () => {
       />,
     );
     expect(screen.getByText(/2 expected rows missing/)).toBeInTheDocument();
+    expect(screen.getByText("Expected rows")).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "id" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.queryByText(/\{\s*"id"/)).not.toBeInTheDocument();
   });
 
   it("shows extra rows count", () => {
@@ -288,6 +294,47 @@ describe("ValidationFeedback", () => {
       />,
     );
     expect(screen.getByText(/1 unexpected row returned/)).toBeInTheDocument();
+    expect(screen.getByText("Got rows")).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "id" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.queryByText(/\{\s*"id"/)).not.toBeInTheDocument();
+  });
+
+  it("renders row diffs as tables with all row columns", () => {
+    render(
+      <ValidationFeedback
+        passed={false}
+        diff={{
+          dataDiff: {
+            missingRows: [
+              {
+                customerName: "Farid Mansouri",
+                phoneNumber: "0771234567",
+                totalDataConsp: 9008452608,
+              },
+            ],
+            extraRows: [
+              {
+                customerName: "MMS",
+                phoneNumber: null,
+                totalDataConsp: undefined,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getAllByRole("table")).toHaveLength(2);
+    expect(
+      screen.getAllByRole("columnheader", { name: "customerName" }),
+    ).toHaveLength(2);
+    expect(screen.getByText("Farid Mansouri")).toBeInTheDocument();
+    expect(screen.getByText("0771234567")).toBeInTheDocument();
+    expect(screen.getByText("9008452608")).toBeInTheDocument();
+    expect(screen.getByText("NULL")).toBeInTheDocument();
   });
 
   it("shows all diff details simultaneously", () => {
