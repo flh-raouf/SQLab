@@ -220,7 +220,7 @@ export function Sidebar({
             Sandbox
           </Link>
           <a
-            href="https://github.com/flh-raouf/td-bdd"
+            href="https://github.com/flh-raouf/SQLab"
             target="_blank"
             rel="noopener noreferrer"
             className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground no-underline transition-colors hover:bg-sidebar-hover hover:text-yellow-400"

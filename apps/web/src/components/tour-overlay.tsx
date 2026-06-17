@@ -182,7 +182,7 @@ export function TourOverlay() {
 
         {step.target === "[data-tour=github]" && (
           <a
-            href="https://github.com/flh-raouf/td-bdd"
+            href="https://github.com/flh-raouf/SQLab"
             target="_blank"
             rel="noopener noreferrer"
             className="mb-5 flex items-center justify-center gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 px-4 py-2.5 text-sm font-medium text-yellow-400 no-underline transition-colors hover:bg-yellow-500/20"

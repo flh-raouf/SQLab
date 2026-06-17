@@ -489,7 +489,7 @@ export function ExerciseWorkspace({ exerciseId }: { exerciseId: string }) {
             </p>
             <div className="flex items-center justify-center gap-3">
               <a
-                href="https://github.com/flh-raouf/td-bdd"
+                href="https://github.com/flh-raouf/SQLab"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-10 items-center gap-2 rounded-md border border-yellow-500/40 bg-yellow-500/10 px-5 text-sm font-medium text-yellow-400 no-underline transition-colors hover:bg-yellow-500/20"
