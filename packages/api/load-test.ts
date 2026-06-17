@@ -137,7 +137,7 @@ async function runDqlLoad(concurrency: number, durationMs: number) {
 }
 
 async function main() {
-  console.log("BDD SQL Revision — Load Test");
+  console.log("SQLab Load Test");
   console.log(`API: ${API_URL}`);
   console.log("");
 

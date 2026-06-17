@@ -1,8 +1,8 @@
-# BDD SQL Revision App — Agent Instructions
+# SQLab — Agent Instructions
 
 ## Project Overview
 
-Local-only web app for practicing SQL exercises from the BDD (Databases) module. 25 exercises across 5 parts covering DDL and DQL against the DZTelecom telecom database.
+Local-only web app for practicing SQL exercises from the BDD (Databases) module. SQLab has 25 exercises across 5 parts covering DDL and DQL against the DZTelecom telecom database.
 
 ## Tech Stack
 

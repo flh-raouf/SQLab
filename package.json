@@ -1,6 +1,12 @@
 {
-  "name": "bdd-revision",
+  "name": "sqlab",
   "private": true,
+  "description": "Open-source SQL practice platform for relational database exercises.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flh-raouf/SQLab.git"
+  },
   "packageManager": "bun@1.2.23",
   "type": "module",
   "workspaces": [

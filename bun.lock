@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "bdd-revision",
+      "name": "sqlab",
       "dependencies": {
         "ioredis": "5.11.1",
       },
